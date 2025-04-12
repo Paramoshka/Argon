@@ -6,5 +6,5 @@
 #define THREAD_POOL_SIZE 4
 
 void start_server();
-
+void handle_signal(int signal);
 #endif  // SERVER_H

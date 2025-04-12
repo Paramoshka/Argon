@@ -16,8 +16,8 @@ static int queue_front = 0;
 static int queue_rear = 0;
 static int queue_count = 0;
 
-static pthread_mutex_t queue_mutex = PTHREAD_MUTEX_INITIALIZER;
-static pthread_cond_t queue_cond = PTHREAD_COND_INITIALIZER;
+pthread_mutex_t queue_mutex = PTHREAD_MUTEX_INITIALIZER;
+pthread_cond_t queue_cond = PTHREAD_COND_INITIALIZER;
 
 static int keep_running = 1;
 
@@ -27,6 +27,11 @@ static void* worker_thread(void* arg) {
 
     while (queue_count == 0 && keep_running) {
       pthread_cond_wait(&queue_cond, &queue_mutex);
+    }
+
+    if (queue_count == 0 && !keep_running) {
+      pthread_mutex_unlock(&queue_mutex);
+      break;
     }
 
     if (!keep_running) {

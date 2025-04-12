@@ -1,6 +1,6 @@
 CC = gcc
-CFLAGS = -Wall -Wextra -Iinclude
-SRC = src/main.c src/server.c src/http.c
+CFLAGS = -Wall -Wextra -Iinclude -static
+SRC = $(wildcard src/*.c)
 TARGET = argon
 
 all:

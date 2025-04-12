@@ -2,7 +2,8 @@
 // Server setup and accept loop
 
 #include <arpa/inet.h>
-// #include <errno.h>
+#include <pthread.h>
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -10,13 +11,43 @@
 #include <unistd.h>
 
 #include "../include/constants.h"
-#include "../include/http.h"
 #include "../include/server.h"
 #include "../include/thread_pool.h"
+
+volatile sig_atomic_t keep_running = 1;
+// External global variables
+extern pthread_cond_t queue_cond;
+extern pthread_mutex_t queue_mutex;
+
+void handle_signal(int signal) {
+  if (signal == SIGINT || signal == SIGTERM) {
+    printf("Shutdown signal received. Shutting down server gracefully...\n");
+    keep_running = 0;
+  }
+}
 
 void fatal(const char *message) {
   perror(message);
   exit(EXIT_FAILURE);
+}
+
+void shutdown_server(int server_fd) {
+  pthread_mutex_lock(&queue_mutex);
+
+  keep_running = 0;
+
+  // Wake up all worker threads waiting for tasks
+  pthread_cond_broadcast(&queue_cond);
+
+  pthread_mutex_unlock(&queue_mutex);
+
+  // Destroy thread pool cleanly
+  thread_pool_destroy();
+
+  // Close server socket
+  close(server_fd);
+
+  printf("Server shutdown complete.\n");
 }
 
 void start_server() {
@@ -58,7 +89,7 @@ void start_server() {
   printf("Listening for incoming connections...\n");
 
   // Accept loop
-  while (1) {
+  while (keep_running) {
     struct sockaddr_in client_addr;
     socklen_t client_len = sizeof(client_addr);
 
@@ -75,6 +106,5 @@ void start_server() {
     thread_pool_add_task(client_fd);
   }
 
-  close(server_fd);
-  thread_pool_destroy();
+  shutdown_server(server_fd);
 }

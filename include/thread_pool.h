@@ -3,8 +3,9 @@
 
 #ifndef THREAD_POOL_H
 #define THREAD_POOL_H
-
 #include <pthread.h>
+#define MAX_QUEUE_SIZE 1024
+#define MAX_THREADS 4
 
 void thread_pool_init(int num_threads);
 void thread_pool_add_task(int client_fd);

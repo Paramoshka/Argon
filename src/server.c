@@ -15,9 +15,6 @@
 #include "../include/thread_pool.h"
 
 volatile sig_atomic_t keep_running = 1;
-// External global variables
-extern pthread_cond_t queue_cond;
-extern pthread_mutex_t queue_mutex;
 
 void handle_signal(int signal) {
   if (signal == SIGINT || signal == SIGTERM) {

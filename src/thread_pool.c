@@ -2,11 +2,13 @@
 // Simple thread pool implementation
 
 #include <pthread.h>
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
 
 #include "../include/http.h"
+#include "../include/server.h"
 #include "../include/thread_pool.h"
 
 #define MAX_QUEUE_SIZE 1024
@@ -19,19 +21,12 @@ static int queue_count = 0;
 pthread_mutex_t queue_mutex = PTHREAD_MUTEX_INITIALIZER;
 pthread_cond_t queue_cond = PTHREAD_COND_INITIALIZER;
 
-static int keep_running = 1;
-
 static void* worker_thread(void* arg) {
   while (keep_running) {
     pthread_mutex_lock(&queue_mutex);
 
     while (queue_count == 0 && keep_running) {
       pthread_cond_wait(&queue_cond, &queue_mutex);
-    }
-
-    if (queue_count == 0 && !keep_running) {
-      pthread_mutex_unlock(&queue_mutex);
-      break;
     }
 
     if (!keep_running) {
@@ -85,8 +80,6 @@ void thread_pool_add_task(int client_fd) {
 }
 
 void thread_pool_destroy() {
-  pthread_mutex_lock(&queue_mutex);
-  keep_running = 0;
-  pthread_cond_broadcast(&queue_cond);
-  pthread_mutex_unlock(&queue_mutex);
+  pthread_mutex_destroy(&queue_mutex);
+  pthread_cond_destroy(&queue_cond);
 }

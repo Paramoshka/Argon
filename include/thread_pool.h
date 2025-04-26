@@ -25,6 +25,10 @@ typedef struct {
 
 ThreadPool* create_thread_pool(int num_threads, int queue_size);
 int thread_pool_add_task(ThreadPool* pool, int client_fd);
-thread_pool_destroy(ThreadPool *pool);
+void thread_pool_destroy(ThreadPool *pool);
+void thread_pool_start(ThreadPool* pool);
+void* worker_thread(void* arg);
+
+
 
 #endif  // THREAD_POOL_H

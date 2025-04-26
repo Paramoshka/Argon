@@ -87,7 +87,7 @@ int thread_pool_add_task(ThreadPool* pool, int client_fd) {
 }
 
 
-thread_pool_destroy(ThreadPool *pool) {
+void thread_pool_destroy(ThreadPool *pool) {
 
   if (!pool) return;
 
@@ -113,3 +113,25 @@ thread_pool_destroy(ThreadPool *pool) {
 
   printf("Thread pool destroyed successfully.\n");
 }
+
+void* worker_thread(void* arg) {
+  ThreadPool* pool = (ThreadPool*)arg;
+}
+
+
+void thread_pool_start(ThreadPool* pool) {
+
+  if (!pool) return;
+
+  for (size_t i = 0; i < pool->max_threads; i++)
+  {
+    if (pthread_create(pool->threads[i], NULL, worker_thread, pool)) {
+      perror("pthread_create err!");
+      exit(EXIT_FAILURE);
+    }
+    pool->thread_count++;
+  }
+
+  printf("Thread pool started with %d threads.\n", pool->thread_count);
+}
+

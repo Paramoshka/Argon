@@ -21,12 +21,14 @@ typedef struct {
     int max_threads;       // Max threads size
 
     volatile int keep_running; // Flag pool is running
+
+    void (*task_handler)(int); // Taskhandler
 } ThreadPool;
 
 ThreadPool* create_thread_pool(int num_threads, int queue_size);
 int thread_pool_add_task(ThreadPool* pool, int client_fd);
 void thread_pool_destroy(ThreadPool *pool);
-void thread_pool_start(ThreadPool* pool);
+void thread_pool_start(ThreadPool* pool, void (*task_handler)(int));
 void* worker_thread(void* arg);
 
 

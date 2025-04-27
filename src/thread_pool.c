@@ -135,15 +135,16 @@ void* worker_thread(void* arg) {
 
     pthread_mutex_unlock(&pool->queue_mutex);
 
-    handle_client(client_fd);
+    pool->task_handler(client_fd);
   }
 
   return NULL;
 }
 
 
-void thread_pool_start(ThreadPool* pool) {
-  if (!pool) return;
+void thread_pool_start(ThreadPool* pool, void (*task_handler)(int)) {
+  if (!pool || !task_handler) return;
+  pool->task_handler = task_handler;
 
   for (int i = 0; i < pool->max_threads; i++) {
       if (pthread_create(&pool->threads[i], NULL, worker_thread, pool)) {

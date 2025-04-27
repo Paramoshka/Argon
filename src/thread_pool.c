@@ -116,6 +116,30 @@ void thread_pool_destroy(ThreadPool *pool) {
 
 void* worker_thread(void* arg) {
   ThreadPool* pool = (ThreadPool*)arg;
+
+  while (1)
+  {
+    pthread_mutex_lock(&pool->queue_mutex);
+
+    while (pool->keep_running && pool->queue_count == 0) {
+      pthread_cond_wait(&pool->queue_cond, &pool->queue_mutex);
+    }
+
+    if (!pool->keep_running && pool->queue_count == 0){
+      pthread_mutex_unlock(&pool->queue_mutex);
+      break;
+    }
+
+    int client_fd = pool->client_queue[pool->queue_front];
+    pool->queue_front = (pool->queue_front + 1) % pool->max_queue_size;
+    pool->queue_count--;
+
+    pthread_mutex_unlock(&pool->queue_mutex);
+
+    handle_client(client_fd);
+  }
+
+  return NULL;
 }
 
 

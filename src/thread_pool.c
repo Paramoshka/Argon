@@ -6,7 +6,6 @@
 #include <unistd.h>
 
 #include "../include/http.h"
-#include "../include/server.h"
 #include "../include/thread_pool.h"
 
 
@@ -144,18 +143,17 @@ void* worker_thread(void* arg) {
 
 
 void thread_pool_start(ThreadPool* pool) {
-
   if (!pool) return;
 
-  for (size_t i = 0; i < pool->max_threads; i++)
-  {
-    if (pthread_create(pool->threads[i], NULL, worker_thread, pool)) {
-      perror("pthread_create err!");
-      exit(EXIT_FAILURE);
-    }
-    pool->thread_count++;
+  for (int i = 0; i < pool->max_threads; i++) {
+      if (pthread_create(&pool->threads[i], NULL, worker_thread, pool)) {
+          perror("pthread_create err!");
+          exit(EXIT_FAILURE);
+      }
+      pool->thread_count++;
   }
 
   printf("Thread pool started with %d threads.\n", pool->thread_count);
 }
+
 

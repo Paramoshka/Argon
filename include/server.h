@@ -4,6 +4,7 @@
 #ifndef SERVER_H
 #define SERVER_H
 #define THREAD_POOL_SIZE 4
+#define MAX_EVENTS 128
 #define DEFAULT_LISTEN_ADD "0.0.0.0"
 
 #include <signal.h>

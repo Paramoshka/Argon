@@ -11,6 +11,8 @@
 #include <unistd.h>
 #include <sys/epoll.h>
 #include <sys/eventfd.h>
+#include <errno.h>
+
 
 #include "../include/server.h"
 
@@ -122,6 +124,94 @@ Server* server_init(const char* bind_addr, int port) {
 
   server->keep_running = 1;
   printf("Server initialized successfully on %s:%d\n", bind_addr, port);
-  
+
   return server;
 }
+
+void server_run(Server* server) {
+  if (!server) return;
+
+  struct epoll_event events[MAX_EVENTS];
+
+  while (server->keep_running) {
+      int n = epoll_wait(server->epoll_fd, events, MAX_EVENTS, -1);
+      if (n == -1) {
+          if (errno == EINTR) {
+              continue;
+          }
+          perror("epoll_wait failed");
+          break;
+      }
+
+      for (int i = 0; i < n; i++) {
+          int event_fd = events[i].data.fd;
+
+          if (event_fd == server->server_fd) {
+              struct sockaddr_in client_addr;
+              socklen_t client_len = sizeof(client_addr);
+
+              int client_fd = accept(server->server_fd, (struct sockaddr*)&client_addr, &client_len);
+              if (client_fd == -1) {
+                  perror("accept failed");
+                  continue;
+              }
+
+              printf("Accepted new client %s:%d\n",
+                     inet_ntoa(client_addr.sin_addr),
+                     ntohs(client_addr.sin_port));
+
+              if (thread_pool_add_task(server->pool, client_fd) != 0) {
+                  perror("Failed to add client to thread pool");
+                  close(client_fd);
+              }
+
+          } else if (event_fd == server->shutdown_fd) {
+            printf("Shutdown event received. Shutting down server...\n");
+
+            uint64_t u;
+            if (read(server->shutdown_fd, &u, sizeof(u)) != sizeof(u)) {
+                perror("read shutdown_fd failed");
+            }
+        
+            server_shutdown(server);
+        
+            return;
+          }
+      }
+  }
+
+  printf("Server run loop exited.\n");
+}
+
+void server_shutdown(Server* server) {
+  if (!server) return;
+
+  printf("Shutting down server...\n");
+
+  server->keep_running = 0;
+
+  if (server->server_fd != -1) {
+      close(server->server_fd);
+      server->server_fd = -1;
+  }
+
+  if (server->epoll_fd != -1) {
+      close(server->epoll_fd);
+      server->epoll_fd = -1;
+  }
+
+  if (server->shutdown_fd != -1) {
+      close(server->shutdown_fd);
+      server->shutdown_fd = -1;
+  }
+
+  if (server->pool) {
+      thread_pool_destroy(server->pool);
+      server->pool = NULL;
+  }
+
+  free(server);
+
+  printf("Server shutdown complete.\n");
+}
+

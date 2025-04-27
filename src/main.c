@@ -1,11 +1,7 @@
-#include <signal.h>
-
 #include "../include/server.h"
 
 int main() {
-  // Register signal handler
-  signal(SIGINT, handle_signal);
-  signal(SIGTERM, handle_signal);
-  start_server();
+  Server* server = server_init("0.0.0.0", 8080);
+  server_run(server);
   return 0;
 }

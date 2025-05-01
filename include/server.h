@@ -17,12 +17,12 @@ typedef struct {
     int opt;
     ThreadPool* pool;
     volatile sig_atomic_t keep_running;
+    void (*handler)(int);
 } Server;
 
-Server* server_init(const char* bind_addr, int port);
+Server* server_init(const char* bind_addr, int port, void (*handler)(int));
 void server_run(Server* server);
 void server_shutdown(Server* server);
 void server_handle_signal(int signal, Server* server);
-
 
 #endif  // SERVER_H

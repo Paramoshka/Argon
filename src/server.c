@@ -16,7 +16,7 @@
 #include "../include/server.h"
 #include "../include/http.h"
 
-Server* server_init(const char* bind_addr, int port) {
+Server* server_init(const char* bind_addr, int port, void (*handler)(int)) {
   Server* server = calloc(1, sizeof(Server));
   if (!server) {
     perror("Failed allocate memry for Server");
@@ -120,8 +120,8 @@ Server* server_init(const char* bind_addr, int port) {
   }
 
   server->pool = create_thread_pool(4, 1024);
-  thread_pool_start(server->pool, handle_client);
-
+  server->handler = handler;
+  thread_pool_start(server->pool, server->handler);
   server->keep_running = 1;
   printf("Server initialized successfully on %s:%d\n", bind_addr, port);
 
@@ -214,4 +214,3 @@ void server_shutdown(Server* server) {
 
   printf("Server shutdown complete.\n");
 }
-

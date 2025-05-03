@@ -1,6 +1,7 @@
 {
     "files.associations": {
         "stdio.h": "c",
-        "utmp.h": "c"
+        "utmp.h": "c",
+        "thread_pool.h": "c"
     }
 }

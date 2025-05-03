@@ -4,10 +4,12 @@
 #ifndef THREAD_POOL_H
 #define THREAD_POOL_H
 #include <pthread.h>
+#include "../include/config.h"
 #define MAX_QUEUE_SIZE 1024
 #define MAX_THREADS 4
 
 typedef struct {
+    ServerConfig* cfg;
     pthread_mutex_t queue_mutex;
     pthread_cond_t queue_cond;
     int *client_queue;     // queue dynamic array
@@ -22,13 +24,13 @@ typedef struct {
 
     volatile int keep_running; // Flag pool is running
 
-    void (*task_handler)(int); // Taskhandler
+    void (*task_handler)(int, ServerConfig*); // Taskhandler
 } ThreadPool;
 
-ThreadPool* create_thread_pool(int num_threads, int queue_size);
+ThreadPool* create_thread_pool(int num_threads, int queue_size, ServerConfig* cfg);
 int thread_pool_add_task(ThreadPool* pool, int client_fd);
 void thread_pool_destroy(ThreadPool *pool);
-void thread_pool_start(ThreadPool* pool, void (*task_handler)(int));
+void thread_pool_start(ThreadPool* pool, void (*task_handler)(int, ServerConfig*));
 void* worker_thread(void* arg);
 
 

@@ -15,7 +15,7 @@ int main() {
   }
   print_config(cfg);
   
-  Server* server = server_init("0.0.0.0", 8080, handle_client);
+  Server* server = server_init(cfg, handle_client);
   server_run(server);
   server_shutdown(server);
   return 0;

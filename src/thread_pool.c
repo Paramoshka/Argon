@@ -9,7 +9,7 @@
 #include "../include/thread_pool.h"
 
 
-ThreadPool* create_thread_pool(int num_threads, int queue_size) {
+ThreadPool* create_thread_pool(int num_threads, int queue_size, ServerConfig* cfg) {
   ThreadPool* thread_pool = calloc(1, sizeof(ThreadPool));
   if (!thread_pool) {
     perror("Failed create thread pool in calloc");
@@ -59,6 +59,7 @@ ThreadPool* create_thread_pool(int num_threads, int queue_size) {
   thread_pool->thread_count = 0;
   thread_pool->max_threads = num_threads;
   thread_pool->keep_running = 1;
+  thread_pool->cfg = cfg;
 
 
   return thread_pool;
@@ -135,14 +136,16 @@ void* worker_thread(void* arg) {
 
     pthread_mutex_unlock(&pool->queue_mutex);
 
-    pool->task_handler(client_fd);
+    ServerConfig* cfg = pool->cfg;
+
+    pool->task_handler(client_fd, cfg);
   }
 
   return NULL;
 }
 
 
-void thread_pool_start(ThreadPool* pool, void (*task_handler)(int)) {
+void thread_pool_start(ThreadPool* pool, void (*task_handler)(int, ServerConfig*)) {
   if (!pool || !task_handler) return;
   pool->task_handler = task_handler;
 

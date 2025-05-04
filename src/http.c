@@ -4,13 +4,7 @@
 #include <unistd.h>
 #include <arpa/inet.h>
 #include "../include/http.h"
-
-// Placeholder for parsing HTTP request and extracting Host header
-char* get_host_from_request(int client_fd) {
-    // Implement HTTP request parsing here
-    // For now, return a dummy host
-    return strdup("example.com");
-}
+#include "../include/request.h"
 
 void handle_client(int client_fd, ServerConfig* config) {
     struct sockaddr_in local_addr;
@@ -18,7 +12,13 @@ void handle_client(int client_fd, ServerConfig* config) {
     if (getsockname(client_fd, (struct sockaddr*)&local_addr, &addrlen) == 0) {
         int local_port = ntohs(local_addr.sin_port);
 
-        char* host = get_host_from_request(client_fd);
+        Request* req = parse_http_request(client_fd);
+        if (!req) {
+            close(client_fd);
+            return;
+        }
+        const char* host = get_header(req, "Host");
+        free_request(req);
         ServerName* selected = NULL;
         ServerName *s, *tmp;
         HASH_ITER(hh, config->servers, s, tmp) {
@@ -50,8 +50,6 @@ void handle_client(int client_fd, ServerConfig* config) {
                      "HTTP/1.1 404 Not Found\r\nContent-Length: 9\r\n\r\nNot Found");
             write(client_fd, response, strlen(response));
         }
-
-        if (host) free(host);
     }
 
     close(client_fd);

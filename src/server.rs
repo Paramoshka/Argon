@@ -9,11 +9,19 @@ pub struct Server {
 
 impl Server {
     pub async fn new(server_config: ServerConfig) -> Result<Self, std::io::Error> {
-        let listener = TcpListener::bind(("0.0.0.0", server_config.port)).await?;
-        Ok(Server{
-            tcp_listener: listener,
-            server_config
-        })
+        match TcpListener::bind(("0.0.0.0", server_config.port)).await {
+            Ok(listener) => {
+                println!("✅ Server listening on 0.0.0.0:{}", server_config.port);
+                Ok(Server {
+                    tcp_listener: listener,
+                    server_config,
+                })
+            },
+            Err(e) => {
+                eprintln!("❌ Failed to bind to port {}: {}", server_config.port, e);
+                Err(e)
+            }
+        }
     }
     
     pub async fn run(&self) -> Result<(), std::io::Error> {

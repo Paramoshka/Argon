@@ -15,31 +15,25 @@ impl ServerConfig {
         let raw = fs::read_to_string(path)?;
 
         // Разделяем файл по строкам "server {"
-        for block in raw.split("server {") {
-            // Пропускаем пустые блоки или строки до первого "server"
-            let block = block.trim();
-            if block.is_empty() || !block.contains('}') {
+        for block in raw.split("server {").skip(1) {
+            let block = block.split_once('}').map(|(b, _)| b).unwrap_or("").trim();
+            if block.is_empty() {
                 continue;
             }
 
-            // Извлекаем host и port
-            let host = ServerConfig::parse_directive(block, "server_name")
+            let host = Self::parse_directive(block, "server_name")
                 .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::InvalidData, "Error parsing server name"))?;
-            let port_str = ServerConfig::parse_directive(block, "listen")
+
+            let port_str = Self::parse_directive(block, "listen")
                 .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::InvalidData, "Error parsing server port"))?;
 
-            // Парсим port в u16
             let port: u16 = port_str.trim()
                 .parse()
                 .map_err(|_| std::io::Error::new(std::io::ErrorKind::InvalidData, "Port is not a valid number"))?;
 
-            // Создаем структуру и добавляем в массив
-            let server = ServerConfig {
-                host,
-                port,
-            };
-            arr_server_config.push(server);
+            arr_server_config.push(ServerConfig { host, port });
         }
+
 
         // Возвращаем пустой Vec, если нет серверов, или заполненный
         Ok(arr_server_config)
@@ -47,19 +41,19 @@ impl ServerConfig {
 
     // Простая функция для извлечения значения директивы
     fn parse_directive(block: &str, directive: &str) -> Option<String> {
-        for line in block.lines() {
-            let line = line.trim();
-            if line.starts_with(directive) {
-                // Извлекаем значение после директивы, убирая пробелы и точку с запятой
-                return Some(
-                    line[directive.len()..]
-                        .trim()
-                        .trim_end_matches(';')
-                        .to_string(),
-                );
-            }
-        }
-        None
+        block.lines()
+            .map(str::trim)
+            .find_map(|line| {
+                let mut parts = line.split_whitespace();
+                match (parts.next(), parts.next()) {
+                    (Some(key), Some(value)) if key == directive => {
+                        Some(value.trim_end_matches(';').to_string())
+                    }
+                    _ => None,
+                }
+            })
     }
+
+
 }
 

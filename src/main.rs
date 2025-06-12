@@ -8,9 +8,19 @@ mod server;
 async fn main() -> Result<(), std::io::Error> {
     let server_config_list = ServerConfig::new().expect("Could not create server config");
     for server_config in server_config_list {
-        let server = Server::new(server_config).await?;
-        server.run().await?;
+        tokio::spawn(async move {
+            match Server::new(server_config).await {
+                Ok(server) => {
+                    if let Err(e) = server.run().await {
+                        eprintln!("Server on port  failed: {}", e);
+                    }
+                }
+                Err(e) => {
+                    eprintln!("Failed to start server on port {}:", e);
+                }
+            }
+        });
     }
-    
+    futures::future::pending::<()>().await;
     Ok(())
 }

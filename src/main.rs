@@ -3,6 +3,7 @@ use crate::server::Server;
 
 mod config;
 mod server;
+mod http;
 
 #[tokio::main]
 async fn main() -> Result<(), std::io::Error> {

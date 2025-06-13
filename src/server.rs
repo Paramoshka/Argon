@@ -1,6 +1,7 @@
 use tokio::io::AsyncReadExt;
 use tokio::net::{TcpListener, TcpSocket};
 use crate::config::ServerConfig;
+use crate::http::Request;
 
 pub struct Server {
     tcp_listener: TcpListener,
@@ -33,7 +34,7 @@ impl Server {
                     let n = match tcp_stream.read(&mut buf).await {
                         Ok(0) => return,
                         Ok(n) => {
-                            println!("Read {} bytes", n);
+                            let req = Request::parse_request(n);
                         },
                         Err(e) => {
                             println!("failed to read from socket; err = {:?}", e);

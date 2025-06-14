@@ -34,7 +34,7 @@ impl Server {
                     let n = match tcp_stream.read(&mut buf).await {
                         Ok(0) => return,
                         Ok(n) => {
-                            let req = Request::parse_request(n);
+                            let req = Request::parse_request(&buf[..n]);
                         },
                         Err(e) => {
                             println!("failed to read from socket; err = {:?}", e);

@@ -10,6 +10,7 @@ pub struct Server {
 }
 
 impl Server {
+    // Get Array ServerConfig with the same port
     pub async fn new(server_config: ServerConfig) -> Result<Self, std::io::Error> {
         match TcpListener::bind(("0.0.0.0", server_config.port)).await {
             Ok(listener) => {

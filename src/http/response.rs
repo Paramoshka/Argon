@@ -1,5 +1,4 @@
 use std::io::Write;
-use std::ptr::write;
 
 pub struct Response {
     pub method: String,

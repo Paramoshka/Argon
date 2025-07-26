@@ -2,33 +2,30 @@ use std::collections::HashMap;
 use crate::config::ServerConfig;
 use crate::server::Server;
 
-mod config;
 mod server;
 mod http;
+mod config;
 
 #[tokio::main]
 async fn main() -> Result<(), std::io::Error> {
     let server_config_list = ServerConfig::new().expect("Could not create server config");
     let sort_config = sort_server_config(server_config_list);
     for (port, server_config) in sort_config {
-        for (host, server_config) in server_config {
-            println!("Server config found at {}:{}", server_config.host, server_config.port);
-        }
+        tokio::spawn(async move {
+            match Server::new(port, server_config).await {
+                Ok(server) => {
+                    if let Err(e) = server.run().await {
+                        eprintln!("Server on port  failed: {}", e);
+                    }
+                }
+    
+                Err(e) => {
+                    eprintln!("Failed to start server on port {}:", e);
+                }
+            }
+        });
     }
-    // for server_config in server_config_list {
-    //     tokio::spawn(async move {
-    //         match Server::new(server_config).await {
-    //             Ok(server) => {
-    //                 if let Err(e) = server.run().await {
-    //                     eprintln!("Server on port  failed: {}", e);
-    //                 }
-    //             }
-    //             Err(e) => {
-    //                 eprintln!("Failed to start server on port {}:", e);
-    //             }
-    //         }
-    //     });
-    // }
+
     futures::future::pending::<()>().await;
     Ok(())
 }

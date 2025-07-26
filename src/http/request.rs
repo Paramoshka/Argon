@@ -1,5 +1,3 @@
-use std::str::Lines;
-use crate::http::response::Response;
 
 use std::collections::HashMap;
 

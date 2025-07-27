@@ -19,17 +19,17 @@ impl ServerConfig {
         let raw_blocks = ServerBlock::extract_server_blocks(&raw);
         for raw_block in raw_blocks {
             
-            let host = parse_directive(&*raw_block, "server_name")
+            let host = parse_directive(&raw_block, "server_name")
                 .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::InvalidData, "Error parsing server name"))?;
 
-            let port_str = parse_directive(&*raw_block, "listen")
+            let port_str = parse_directive(&raw_block, "listen")
                 .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::InvalidData, "Error parsing server port"))?;
 
             let port: u16 = port_str.trim()
                 .parse()
                 .map_err(|_| std::io::Error::new(std::io::ErrorKind::InvalidData, "Port is not a valid number"))?;
 
-            let raw_locations = Location::extract_location_blocks(&*raw_block);
+            let raw_locations = Location::extract_location_blocks(&raw_block);
             
             let mut locations: HashMap<String, Location> = HashMap::new();
             
@@ -39,7 +39,7 @@ impl ServerConfig {
                     let path = Location::extract_location_path(&raw_location)
                         .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::InvalidData, "Error parsing location"))?;
 
-                    let prox_pass = parse_directive(&*raw_location, "proxy_pass")
+                    let prox_pass = parse_directive(&raw_location, "proxy_pass")
                         .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::InvalidData, "Error parsing proxy password"))?;
                     
                     locations.insert(path, Location{proxy_pass: prox_pass});

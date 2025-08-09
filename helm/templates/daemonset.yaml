@@ -1,0 +1,111 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: {{ include "helm.fullname" . }}-dataplane
+  labels:
+    {{ include "helm.labels" . | nindent 4 }}
+spec:
+  updateStrategy:
+    {{- toYaml .Values.dataplane.updateStrategy | nindent 4 }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "helm.name" . }}
+      app.kubernetes.io/component: dataplane
+  template:
+    metadata:
+      annotations:
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{ include "helm.labels" . | nindent 8 }}
+        app.kubernetes.io/component: dataplane
+        {{- with .Values.podLabels }}
+        {{ toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- if .Values.dataplane.hostNetwork }}
+      hostNetwork: true
+      dnsPolicy: {{ .Values.dataplane.dnsPolicy | default "ClusterFirstWithHostNet" }}
+      {{- else }}
+      dnsPolicy: {{ .Values.dataplane.dnsPolicy | default "ClusterFirst" }}
+      {{- end }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{ toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ .Values.dataplane.serviceAccountName | default (include "helm.serviceAccountName" .) }}
+      terminationGracePeriodSeconds: {{ .Values.dataplane.terminationGracePeriodSeconds | default 30 }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: dataplane
+          image: "{{ .Values.image.repository }}-dataplane:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          env:
+            - name: HTTP_PORT
+              value: "{{ .Values.dataplane.ports.http | default 8080 }}"
+            - name: HTTPS_PORT
+              value: "{{ .Values.dataplane.ports.https | default 8443 }}"
+            - name: ADMIN_PORT
+              value: "{{ .Values.dataplane.ports.adminport | default 8181 }}"
+            - name: CONTROLLER_ADDR
+              value: "http://{{ include "helm.fullname" . }}-controller:{{ .Values.controller.ports.grpc | default 18000 }}"
+            - name: NODE_ID
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            {{- with .Values.dataplane.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.dataplane.ports.http | default 8080 }}
+              protocol: TCP
+            - name: https
+              containerPort: {{ .Values.dataplane.ports.https | default 8443 }}
+              protocol: TCP
+            - name: admin-port
+              containerPort: {{ .Values.dataplane.ports.adminport | default 8181 }}
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: {{ .Values.dataplane.ports.adminport | default 8181 }}
+            initialDelaySeconds: 2
+            periodSeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: {{ .Values.dataplane.ports.adminport | default 8181 }}
+            initialDelaySeconds: 2
+            periodSeconds: 5
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+      {{- with .Values.dataplane.topologySpreadConstraints }}
+      topologySpreadConstraints:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if .Values.dataplane.podAntiAffinity }}
+      affinity:
+        podAntiAffinity:
+{{ toYaml .Values.dataplane.podAntiAffinity | nindent 10 }}
+        {{- with .Values.affinity }}
+        {{ toYaml . | nindent 8 }}
+        {{- end }}
+      {{- else }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

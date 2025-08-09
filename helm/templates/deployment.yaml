@@ -1,0 +1,119 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "helm.fullname" . }}-controller
+  labels:
+    {{ include "helm.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.controller.replicas | default 2 }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "helm.name" . }}
+      app.kubernetes.io/component: controller
+  template:
+    metadata:
+      annotations:
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+        {{- if .Values.config.enabled }}
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        {{- end }}
+      labels:
+        {{ include "helm.labels" . | nindent 8 }}
+        app.kubernetes.io/component: controller
+        {{- with .Values.podLabels }}
+        {{ toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      dnsPolicy: {{ .Values.controller.dnsPolicy | default "ClusterFirst" }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "helm.serviceAccountName" . }}
+      priorityClassName: {{ .Values.controller.priorityClassName | quote }}
+      terminationGracePeriodSeconds: {{ .Values.controller.terminationGracePeriodSeconds | default 30 }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: controller
+          image: "{{ .Values.image.repository }}-controller:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          env:
+            - name: INGRESS_CLASS
+              value: {{ .Values.controller.className | quote }}
+            {{- with .Values.controller.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          args:
+            - "--ingress-class={{ (include "helm.fullname" .) }}"
+            - "--leader-elect"
+            - "--health-probe-bind-address=:{{ .Values.controller.ports.healthz | default 8081 }}"
+            {{- if .Values.config.enabled }}
+            - "--config={{ default (printf "%s-config" (include "helm.fullname" .)) .Values.config.name }}"
+            {{- end }}
+            {{- range $arg := .Values.controller.extraArgs }}
+            - {{ $arg | quote }}
+            {{- end }}
+          ports:
+            - name: grpc
+              containerPort: {{ .Values.controller.ports.grpc | default 18000 }}
+              protocol: TCP
+            - name: healthz
+              containerPort: {{ .Values.controller.ports.healthz | default 8081 }}
+              protocol: TCP
+          livenessProbe:
+            {{- toYaml .Values.livenessProbe | nindent 12 }}
+          readinessProbe:
+            {{- toYaml .Values.readinessProbe | nindent 12 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            {{- if .Values.config.enabled }}
+            - name: controller-config
+              mountPath: {{ .Values.config.mountPath }}
+              readOnly: true
+            {{- end }}
+            {{- with .Values.extraVolumeMounts }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+      volumes:
+        {{- if .Values.config.enabled }}
+        - name: controller-config
+          configMap:
+            name: {{ default (printf "%s-config" (include "helm.fullname" .)) .Values.config.name }}
+            items:
+              - key: {{ .Values.config.key }}
+                path: {{ .Values.config.fileName }}
+        {{- end }}
+        {{- with .Values.extraVolumes }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- with .Values.controller.topologySpreadConstraints }}
+      topologySpreadConstraints:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if .Values.controller.podAntiAffinity }}
+      affinity:
+        podAntiAffinity:
+{{ toYaml .Values.controller.podAntiAffinity | nindent 10 }}
+        {{- with .Values.affinity }}
+        {{ toYaml . | nindent 8 }}
+        {{- end }}
+      {{- else }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

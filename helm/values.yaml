@@ -1,0 +1,188 @@
+ingressClass:
+  create: true
+  name: "argon"
+  controller: "argon.github.io/ingress"   # must match your controller
+  # optional IngressClass.parameters
+  parametersRef: {}
+  # parametersRef:
+  #   apiGroup: "argon.github.io"
+  #   kind: "ArgonConfig"
+  #   name: "default"
+  #   namespace: "argon-system"
+
+# ---------------------------
+# Controller (control-plane)
+# ---------------------------
+controller:
+  className: "argon"
+  createIngressClass: false
+  replicas: 1
+  terminationGracePeriodSeconds: 60
+  priorityClassName: ""
+
+
+  ports:
+    grpc: 18000
+    healthz: 8081
+
+  # Controller HTTP probes (/healthz, /readyz)
+  livenessProbe:
+    httpGet: { path: /healthz, port: healthz }
+    initialDelaySeconds: 10
+    periodSeconds: 10
+    failureThreshold: 3
+  readinessProbe:
+    httpGet: { path: /readyz, port: healthz }
+    initialDelaySeconds: 5
+    periodSeconds: 5
+    failureThreshold: 3
+
+  # Extra CLI args and environment variables
+  extraArgs: []
+  #   - --log-level=debug
+  #   - --metrics-bind-address=:10254
+  extraEnv: []
+  #   - name: SOME_FLAG
+  #     value: "true"
+
+  topologySpreadConstraints: []
+  podAntiAffinity: {}
+  dnsPolicy: ClusterFirst
+
+  # gRPC Service (used by dataplane to connect)
+  service:
+    enabled: true
+    type: ClusterIP
+    ports:
+      grpc: 18000
+
+# ---------------------------
+# Dataplane (data-plane)
+# ---------------------------
+dataplane:
+  # DaemonSet settings
+  updateStrategy:
+    type: RollingUpdate
+  terminationGracePeriodSeconds: 30
+  serviceAccountName: ""   # Uses global SA if empty
+
+  # Networking settings
+  hostNetwork: true
+  # dnsPolicy: ClusterFirst       # Use ClusterFirstWithHostNet if hostNetwork: true
+  dnsPolicy: ClusterFirstWithHostNet       # Use ClusterFirstWithHostNet if hostNetwork: true
+
+  ports:
+    http: 8080
+    https: 8443
+    adminport: 8181
+
+  # Dataplane HTTP probes (Axum endpoints)
+  livenessProbe:
+    httpGet: { path: /healthz, port: http }
+    initialDelaySeconds: 2
+    periodSeconds: 5
+    failureThreshold: 3
+  readinessProbe:
+    httpGet: { path: /readyz, port: http }
+    initialDelaySeconds: 2
+    periodSeconds: 5
+    failureThreshold: 3
+
+  # Additional environment variables
+  # CONTROLLER_ADDR will be templated from controller Service
+  extraEnv: []
+  #   - name: READY_DEFAULT
+  #     value: "false"
+
+  topologySpreadConstraints: []
+  podAntiAffinity: {}
+
+# ---------------------------
+# Images (shared)
+# ---------------------------
+image:
+  repository: mypathinmyheart/argon  # Will be used as <repo>-controller / <repo>-dataplane
+  tag: "latest"
+  pullPolicy: Always
+  # pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+
+# ---------------------------
+# Helm name overrides
+# ---------------------------
+nameOverride: ""
+fullnameOverride: ""
+
+# ---------------------------
+# ServiceAccount & RBAC
+# ---------------------------
+serviceAccount:
+  create: true
+  automount: true
+  annotations: {}
+  name: ""   # Generated if empty
+
+rbac:
+  create: true   # Required for controller; dataplane usually doesn't need it
+
+# ---------------------------
+# Pod-wide settings (shared)
+# ---------------------------
+podAnnotations: {}
+podLabels: {}
+podSecurityContext: {}
+securityContext: {}
+# Example:
+# securityContext:
+#   allowPrivilegeEscalation: false
+#   readOnlyRootFilesystem: true
+#   runAsNonRoot: true
+#   runAsUser: 101
+#   capabilities:
+#     drop: ["ALL"]
+
+resources: {}
+# Example:
+# resources:
+#   requests: { cpu: 100m, memory: 128Mi }
+#   limits:   { cpu: 500m, memory: 256Mi }
+
+nodeSelector: {}
+tolerations:
+  - key: "node-role.kubernetes.io/control-plane"
+    operator: "Exists"
+    effect: "NoSchedule"
+  - key: "node-role.kubernetes.io/master"
+    operator: "Exists"
+    effect: "NoSchedule"
+
+affinity: {}
+
+# ---------------------------
+# Controller ConfigMap
+# ---------------------------
+config:
+  enabled: true
+  name: ""                        # <fullname>-config
+  mountPath: /etc/ingress-controller
+  fileName: config.yaml
+  key: config.yaml
+  data: |
+    logLevel: info
+    http:
+      listen: ":8080"
+    tls:
+      enabled: false
+
+extraVolumes: []
+extraVolumeMounts: []
+
+# ---------------------------
+# Optional Service (e.g. for metrics)
+# ---------------------------
+service:
+  enabled: false
+  type: ClusterIP
+  ports:
+    metrics: 10254

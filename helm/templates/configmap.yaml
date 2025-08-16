@@ -1,0 +1,15 @@
+{{- if .Values.config.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ default (printf "%s-config" (include "helm.fullname" .)) .Values.config.name }}
+  labels:
+    {{- include "helm.labels" . | nindent 4 }}
+data:
+  {{ default .Values.config.key .Values.config.key }}: |
+{{- if .Values.config.data }}
+{{ .Values.config.data | nindent 4 }}
+{{- else }}
+    {}
+{{- end }}
+{{- end }}

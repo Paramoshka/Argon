@@ -15,8 +15,9 @@ use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 use snapshot::RouteTable;
 use hyper::{Method, Request, Response};
-use http_body_util::{combinators::BoxBody, BodyExt, Empty, Full};
+use http_body_util::{combinators::BoxBody, BodyExt};
 use hyper::body::Incoming;
+use hyper_util::{rt::TokioExecutor, server::conn::auto};
 
 mod argon_config {
     include!("argon.config.rs");
@@ -26,7 +27,7 @@ use argon_config::Snapshot;
 use crate::grpc::GrpcManager;
 use crate::proxy::{proxy_handler};
 
-type ServerBuilder = hyper::server::conn::http1::Builder;
+// type ServerBuilder = hyper::server::conn::http1::Builder;
 
 #[derive(Clone, Default)]
 struct AppState {
@@ -88,6 +89,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 Ok((stream_admin, _)) => {
                     let io_admin = TokioIo::new(stream_admin);
                     let state_for_conn = admin_state.clone();
+                    let ab = auto::Builder::new(TokioExecutor::new());
 
                     tokio::spawn(async move {
 
@@ -96,7 +98,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             async move { echo(request, ready).await }
                         });
 
-                        if let Err(err) = ServerBuilder::new()
+                        if let Err(err) = ab
                             .serve_connection(io_admin, svc)
                             .await
                         {
@@ -132,17 +134,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let (stream, _) = accept_res?;
                 let io = TokioIo::new(stream);
                 let state_cloned = state.clone();
+                let mut builder = auto::Builder::new(TokioExecutor::new());
+                
+                // set http1 options
+                builder
+                .http1()
+                .title_case_headers(true);
+                
+                // set http2 options
+                builder
+                .http2()
+                .auto_date_header(true);
 
                 conns.spawn(async move {
-                    if let Err(err) = ServerBuilder::new()
-                        .ignore_invalid_headers(true)
-                        .preserve_header_case(true)
-                        .title_case_headers(true)
-                        .serve_connection(io, service_fn(move |req| {
-                            // pass state into proxy handler
-                            proxy_handler(req, state_cloned.clone())
-                        }))
-                        .with_upgrades()
+                    let svc = service_fn(move |request: Request<Incoming>| {
+                        proxy_handler(request, state_cloned.clone())
+                    });
+                    
+                    if let Err(err) = builder
+                        .serve_connection_with_upgrades(io, svc)
                         .await
                     {
                         eprintln!("Failed to serve connection: {:?}", err);

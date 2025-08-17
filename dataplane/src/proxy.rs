@@ -1,8 +1,9 @@
-use hyper::{Method, Request, Response};
+use hyper::{Request, Response};
 use bytes::Bytes;
-use http::{header, Error, HeaderName, StatusCode, Uri};
-use http_body_util::{combinators::BoxBody, BodyExt, Empty, Full};
-use hyper_util::rt::TokioIo;
+use http::{header, HeaderMap, HeaderName, StatusCode, Version};
+use http_body_util::{combinators::BoxBody, BodyExt};
+use hyper_util::rt::{TokioExecutor, TokioIo};
+use http::uri::Authority;
 use tokio::net::TcpStream;
 use crate::AppState;
 use crate::utils;
@@ -20,18 +21,21 @@ static HOP_HEADERS: &[HeaderName] = &[
     header::UPGRADE,
 ];
 
-type ClientBuilder = hyper::client::conn::http1::Builder;
-
 pub async fn proxy_handler(
-    req: Request<hyper::body::Incoming>,
+    mut req: Request<hyper::body::Incoming>,
     state: AppState
 ) -> Result<Response<BoxBody<Bytes, hyper::Error>>, hyper::Error> {
     let route_table = state.route_table.read().await;
 
     // <--Get host-->
-    let host = if let Some(h) = req.headers().get(hyper::header::HOST) {
+    let host = if let Some(h) = req.headers().get(header::HOST) {
         match h.to_str() {
-            Ok(s) if !s.is_empty() => s.to_string(),
+            Ok(s) if !s.is_empty() => {
+                match Authority::try_from(s.trim()) {
+                    Ok(a) => a.host().to_ascii_lowercase().trim_end_matches('.').to_string(),
+                    Err(_) => return Ok(text(StatusCode::BAD_REQUEST, "Invalid Host header")),
+                }
+            }
             _ => return Ok(text(StatusCode::BAD_REQUEST, "Invalid Host header")),
         }
     } else if let Some(h) = req.uri().host() {
@@ -64,7 +68,7 @@ pub async fn proxy_handler(
 
     drop(route_table); // lease read lock
 
-    let addr = format!("{}:{}", ep.address, ep.port); // <-- ДОЛЖЕН быть двоеточие, не пробел
+    let addr = format!("{}:{}", ep.address, ep.port);
     let stream = match TcpStream::connect(&addr).await {
         Ok(s) => s,
         Err(e) => {
@@ -72,29 +76,41 @@ pub async fn proxy_handler(
             return Ok(text(StatusCode::BAD_GATEWAY, format!("connect to {addr} failed")));
         }
     };
-    let io = TokioIo::new(stream);
 
-    let (mut sender, conn) = match ClientBuilder::new()
-        .preserve_header_case(true)
-        .title_case_headers(true)
-        .handshake(io)
-        .await
-    {
-        Ok(c) => c,
-        Err(e) => {
-            tracing::error!(error=%e, "handshake failed");
-            return Ok(text(StatusCode::BAD_GATEWAY, "upstream handshake failed"));
-        }
-    };
+    // trim hop_by_hop headers
+    remove_hop_headers(req.headers_mut());
+    
+    if req.version() == Version::HTTP_2 {
+        let io = TokioIo::new(stream);
+        let (mut sender, conn) = hyper::client::conn::http2::Builder::new(TokioExecutor::new())
+            .handshake(io).await?;
+        tokio::spawn(async move {
+            if let Err(e) = conn.await {
+                tracing::error!("upstream h2 connection error: {e}");
+            }
+        });
+        
+        let mut resp = sender.send_request(req).await?;
+        
+        remove_hop_headers(resp.headers_mut());
+        
+        return Ok(resp.map(|b| b.boxed()));
+        
+    } else {
+        let io = TokioIo::new(stream);
+        let (mut sender, conn) = hyper::client::conn::http1::Builder::new().handshake(io).await?;
+        tokio::spawn(async move {
+            if let Err(e) = conn.await {
+                tracing::error!("upstream h1 connection error: {e}");
+            }
+        });
 
-    tokio::spawn(async move {
-        if let Err(e) = conn.await {
-            tracing::error!("upstream connection error: {e}");
-        }
-    });
+        let mut resp = sender.send_request(req).await?;
 
-    let resp = sender.send_request(req).await?;
-    Ok(resp.map(|b| b.boxed()))
+        remove_hop_headers(resp.headers_mut());
+        
+        return Ok(resp.map(|b| b.boxed()));
+    }
 }
 
 // todo need add text
@@ -104,4 +120,11 @@ fn text(status: StatusCode, s: impl Into<String>) -> Response<BoxBody<Bytes, hyp
         .header("content-type", "text/plain; charset=utf-8")
         .body(utils::empty())
         .unwrap()
+}
+
+fn remove_hop_headers(headers: &mut HeaderMap) {
+
+    for header in &*HOP_HEADERS {
+        headers.remove(header);
+    }
 }

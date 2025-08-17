@@ -45,18 +45,18 @@ type ArgonConfigReconciler struct {
 	StreamHub       *StreamHub
 }
 
-func (r *ArgonConfigReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+const ingressClassIndexKey = "spec.ingressClassName"
 
-	var ing networkingv1.Ingress
-	if err := r.Get(ctx, req.NamespacedName, &ing); err != nil {
-		return ctrl.Result{}, client.IgnoreNotFound(err)
+func (r *ArgonConfigReconciler) Reconcile(ctx context.Context, _ ctrl.Request) (ctrl.Result, error) {
+
+	var ingList networkingv1.IngressList
+	if err := r.List(ctx, &ingList, client.MatchingFields{
+		ingressClassIndexKey: r.IngressClass,
+	}); err != nil {
+		return ctrl.Result{}, err
 	}
 
-	if ing.Spec.IngressClassName != nil && *ing.Spec.IngressClassName != r.IngressClass {
-		return ctrl.Result{}, nil
-	}
-
-	targets, err := r.parseEndpoints(ctx, &ing)
+	targets, err := r.parseEndpoints(ctx, &ingList)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -97,77 +97,79 @@ func (r *ArgonConfigReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Complete(r)
 }
 
-func (r *ArgonConfigReconciler) parseEndpoints(ctx context.Context, ing *networkingv1.Ingress) ([]TargetProxy, error) {
+func (r *ArgonConfigReconciler) parseEndpoints(ctx context.Context, ingList *networkingv1.IngressList) ([]TargetProxy, error) {
 	var targetProxies []TargetProxy
 
-	for _, rule := range ing.Spec.Rules {
-		if rule.HTTP == nil {
-			continue
-		}
-
-		target := TargetProxy{
-			Host: rule.Host,
-			Path: make(map[string]TargetEndpoint),
-		}
-
-		for _, p := range rule.HTTP.Paths {
-			be := p.Backend
-			if be.Service == nil {
-				continue
-			}
-			svcName := be.Service.Name
-
-			var slices discoveryv1.EndpointSliceList
-			if err := r.List(ctx, &slices,
-				client.InNamespace(ing.Namespace),
-				client.MatchingLabels{"kubernetes.io/service-name": svcName},
-			); err != nil {
+	for _, ing := range ingList.Items {
+		for _, rule := range ing.Spec.Rules {
+			if rule.HTTP == nil {
 				continue
 			}
 
-			var allAddrs []string
-			var chosenPort *int32
-			var proto corev1.Protocol = corev1.ProtocolTCP
+			target := TargetProxy{
+				Host: rule.Host,
+				Path: make(map[string]TargetEndpoint),
+			}
 
-			for _, slice := range slices.Items {
+			for _, p := range rule.HTTP.Paths {
+				be := p.Backend
+				if be.Service == nil {
+					continue
+				}
+				svcName := be.Service.Name
 
-				matched := matchSlicePort(slice, &be)
-				if matched == nil {
+				var slices discoveryv1.EndpointSliceList
+				if err := r.List(ctx, &slices,
+					client.InNamespace(ing.Namespace),
+					client.MatchingLabels{"kubernetes.io/service-name": svcName},
+				); err != nil {
 					continue
 				}
 
-				if chosenPort == nil {
-					chosenPort = matched
-					proto = portProtocol(slice, matched)
-				}
+				var allAddrs []string
+				var chosenPort *int32
+				var proto corev1.Protocol = corev1.ProtocolTCP
 
-				if *matched != *chosenPort {
-					continue
-				}
+				for _, slice := range slices.Items {
 
-				for _, ep := range slice.Endpoints {
-					if ep.Conditions.Ready != nil && !*ep.Conditions.Ready {
+					matched := matchSlicePort(slice, &be)
+					if matched == nil {
 						continue
 					}
-					allAddrs = appendUnique(allAddrs, ep.Addresses...)
+
+					if chosenPort == nil {
+						chosenPort = matched
+						proto = portProtocol(slice, matched)
+					}
+
+					if *matched != *chosenPort {
+						continue
+					}
+
+					for _, ep := range slice.Endpoints {
+						if ep.Conditions.Ready != nil && !*ep.Conditions.Ready {
+							continue
+						}
+						allAddrs = appendUnique(allAddrs, ep.Addresses...)
+					}
+				}
+
+				if chosenPort == nil || len(allAddrs) == 0 {
+					continue
+				}
+
+				sort.Strings(allAddrs)
+
+				target.Path[p.Path] = TargetEndpoint{
+					Port:      *chosenPort,
+					Protocol:  proto,
+					Addresses: allAddrs,
 				}
 			}
 
-			if chosenPort == nil || len(allAddrs) == 0 {
-				continue
+			if len(target.Path) > 0 {
+				targetProxies = append(targetProxies, target)
 			}
-
-			sort.Strings(allAddrs)
-
-			target.Path[p.Path] = TargetEndpoint{
-				Port:      *chosenPort,
-				Protocol:  proto,
-				Addresses: allAddrs,
-			}
-		}
-
-		if len(target.Path) > 0 {
-			targetProxies = append(targetProxies, target)
 		}
 	}
 

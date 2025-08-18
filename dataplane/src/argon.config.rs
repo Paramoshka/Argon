@@ -47,6 +47,27 @@ pub struct Route {
     pub priority: i32,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ServerTlsBundle {
+    /// uniq name bundle "<ns>/<secret>")
+    #[prost(string, tag = "1")]
+    pub name: ::prost::alloc::string::String,
+    /// SNI-hosts (from ingress.spec.tls.hosts)
+    #[prost(string, repeated, tag = "2")]
+    pub sni: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    /// chain (PEM)
+    #[prost(bytes = "vec", tag = "3")]
+    pub cert_pem: ::prost::alloc::vec::Vec<u8>,
+    /// PKCS#8 PEM
+    #[prost(bytes = "vec", tag = "4")]
+    pub key_pem: ::prost::alloc::vec::Vec<u8>,
+    ///
+    #[prost(int64, tag = "5")]
+    pub not_after_unix: i64,
+    /// sha256(cert||key)
+    #[prost(string, tag = "6")]
+    pub version: ::prost::alloc::string::String,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct Snapshot {
     #[prost(string, tag = "1")]
     pub version: ::prost::alloc::string::String,
@@ -65,6 +86,8 @@ pub struct Snapshot {
     pub routes: ::prost::alloc::vec::Vec<Route>,
     #[prost(message, repeated, tag = "21")]
     pub clusters: ::prost::alloc::vec::Vec<Cluster>,
+    #[prost(message, repeated, tag = "30")]
+    pub server_tls: ::prost::alloc::vec::Vec<ServerTlsBundle>,
 }
 /// Generated client implementations.
 pub mod config_discovery_client {

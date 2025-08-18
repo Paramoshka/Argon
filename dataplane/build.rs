@@ -1,5 +1,5 @@
 fn main() {
-    let proto_file = "proto/argon/config_proto.proto";
+    let proto_file = "proto/argon/config.proto";
     tonic_build::configure()
         .build_server(true)
         .out_dir("./src")

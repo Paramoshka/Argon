@@ -224,14 +224,21 @@ golangci-lint: $(GOLANGCI_LINT) ## Download golangci-lint locally if necessary.
 $(GOLANGCI_LINT): $(LOCALBIN)
 	$(call go-install-tool,$(GOLANGCI_LINT),github.com/golangci/golangci-lint/v2/cmd/golangci-lint,$(GOLANGCI_LINT_VERSION))
 
+
+
 .PHONY: proto-gen
 proto-gen:
 	@echo "Generating gRPC code..."
-	protoc -I proto \
+	@mkdir -p internal/gen/argonpb
+	protoc \
+		-I dataplane/proto \
 		--go_out=internal/gen/argonpb --go_opt=paths=source_relative \
 		--go-grpc_out=internal/gen/argonpb --go-grpc_opt=paths=source_relative \
-		dataplane/proto/argon/config.proto
+		argon/config.proto
+	cd dataplane && cargo build
 	@echo "✅ Proto generation done."
+
+
 
 
 # go-install-tool will 'go install' any package with custom target and name of binary, if it doesn't exist

@@ -1,6 +1,9 @@
 package model
 
 import (
+	"bytes"
+	"encoding/hex"
+	"github.com/golang/protobuf/ptypes/timestamp"
 	corev1 "k8s.io/api/core/v1"
 )
 
@@ -71,8 +74,12 @@ type Endpoint struct {
 }
 
 type TLSSecret struct {
-	Hosts    []string `json:"hosts"`
-	SecretID string   `json:"secretId"`
+	Name         string
+	Sni          []string
+	CertPem      []byte
+	KeyPem       []byte
+	NotAfterUnix timestamp.Timestamp
+	Version      string
 }
 
 type GeoIPRuntime struct {

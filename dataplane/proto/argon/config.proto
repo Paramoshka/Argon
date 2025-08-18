@@ -31,16 +31,24 @@ message Route {
   int32  priority  = 5;
 }
 
+message ServerTlsBundle {
+  string name   = 1;                 // uniq name bundle "<ns>/<secret>")
+  repeated string sni = 2;           // SNI-hosts (from ingress.spec.tls.hosts)
+  bytes cert_pem = 3;                // chain (PEM)
+  bytes key_pem  = 4;                // PKCS#8 PEM
+  int64 not_after_unix = 5;          //
+  string version = 6;                // sha256(cert||key)
+}
+
 message Snapshot {
   string version            = 1;
   string controller_id      = 2;
   string ingress_class_name = 3;
   int64  generated_at_unix_sec = 4;
-
   map<string,string> resource_versions = 10;
-
   repeated Route routes   = 20;
   repeated Cluster clusters = 21;
+  repeated ServerTlsBundle server_tls = 30;
 }
 
 service ConfigDiscovery {

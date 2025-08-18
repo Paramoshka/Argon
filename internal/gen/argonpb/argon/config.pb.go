@@ -293,6 +293,90 @@ func (x *Route) GetPriority() int32 {
 	return 0
 }
 
+type ServerTlsBundle struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`                                        // uniq name bundle "<ns>/<secret>")
+	Sni           []string               `protobuf:"bytes,2,rep,name=sni,proto3" json:"sni,omitempty"`                                          // SNI-hosts (from ingress.spec.tls.hosts)
+	CertPem       []byte                 `protobuf:"bytes,3,opt,name=cert_pem,json=certPem,proto3" json:"cert_pem,omitempty"`                   // chain (PEM)
+	KeyPem        []byte                 `protobuf:"bytes,4,opt,name=key_pem,json=keyPem,proto3" json:"key_pem,omitempty"`                      // PKCS#8 PEM
+	NotAfterUnix  int64                  `protobuf:"varint,5,opt,name=not_after_unix,json=notAfterUnix,proto3" json:"not_after_unix,omitempty"` //
+	Version       string                 `protobuf:"bytes,6,opt,name=version,proto3" json:"version,omitempty"`                                  // sha256(cert||key)
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ServerTlsBundle) Reset() {
+	*x = ServerTlsBundle{}
+	mi := &file_argon_config_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ServerTlsBundle) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ServerTlsBundle) ProtoMessage() {}
+
+func (x *ServerTlsBundle) ProtoReflect() protoreflect.Message {
+	mi := &file_argon_config_proto_msgTypes[4]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ServerTlsBundle.ProtoReflect.Descriptor instead.
+func (*ServerTlsBundle) Descriptor() ([]byte, []int) {
+	return file_argon_config_proto_rawDescGZIP(), []int{4}
+}
+
+func (x *ServerTlsBundle) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *ServerTlsBundle) GetSni() []string {
+	if x != nil {
+		return x.Sni
+	}
+	return nil
+}
+
+func (x *ServerTlsBundle) GetCertPem() []byte {
+	if x != nil {
+		return x.CertPem
+	}
+	return nil
+}
+
+func (x *ServerTlsBundle) GetKeyPem() []byte {
+	if x != nil {
+		return x.KeyPem
+	}
+	return nil
+}
+
+func (x *ServerTlsBundle) GetNotAfterUnix() int64 {
+	if x != nil {
+		return x.NotAfterUnix
+	}
+	return 0
+}
+
+func (x *ServerTlsBundle) GetVersion() string {
+	if x != nil {
+		return x.Version
+	}
+	return ""
+}
+
 type Snapshot struct {
 	state              protoimpl.MessageState `protogen:"open.v1"`
 	Version            string                 `protobuf:"bytes,1,opt,name=version,proto3" json:"version,omitempty"`
@@ -302,13 +386,14 @@ type Snapshot struct {
 	ResourceVersions   map[string]string      `protobuf:"bytes,10,rep,name=resource_versions,json=resourceVersions,proto3" json:"resource_versions,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	Routes             []*Route               `protobuf:"bytes,20,rep,name=routes,proto3" json:"routes,omitempty"`
 	Clusters           []*Cluster             `protobuf:"bytes,21,rep,name=clusters,proto3" json:"clusters,omitempty"`
+	ServerTls          []*ServerTlsBundle     `protobuf:"bytes,30,rep,name=server_tls,json=serverTls,proto3" json:"server_tls,omitempty"`
 	unknownFields      protoimpl.UnknownFields
 	sizeCache          protoimpl.SizeCache
 }
 
 func (x *Snapshot) Reset() {
 	*x = Snapshot{}
-	mi := &file_argon_config_proto_msgTypes[4]
+	mi := &file_argon_config_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -320,7 +405,7 @@ func (x *Snapshot) String() string {
 func (*Snapshot) ProtoMessage() {}
 
 func (x *Snapshot) ProtoReflect() protoreflect.Message {
-	mi := &file_argon_config_proto_msgTypes[4]
+	mi := &file_argon_config_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -333,7 +418,7 @@ func (x *Snapshot) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Snapshot.ProtoReflect.Descriptor instead.
 func (*Snapshot) Descriptor() ([]byte, []int) {
-	return file_argon_config_proto_rawDescGZIP(), []int{4}
+	return file_argon_config_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *Snapshot) GetVersion() string {
@@ -385,6 +470,13 @@ func (x *Snapshot) GetClusters() []*Cluster {
 	return nil
 }
 
+func (x *Snapshot) GetServerTls() []*ServerTlsBundle {
+	if x != nil {
+		return x.ServerTls
+	}
+	return nil
+}
+
 var File_argon_config_proto protoreflect.FileDescriptor
 
 const file_argon_config_proto_rawDesc = "" +
@@ -410,7 +502,14 @@ const file_argon_config_proto_rawDesc = "" +
 	"\x04path\x18\x02 \x01(\tR\x04path\x12\x1b\n" +
 	"\tpath_type\x18\x03 \x01(\tR\bpathType\x12\x18\n" +
 	"\acluster\x18\x04 \x01(\tR\acluster\x12\x1a\n" +
-	"\bpriority\x18\x05 \x01(\x05R\bpriority\"\xaa\x03\n" +
+	"\bpriority\x18\x05 \x01(\x05R\bpriority\"\xab\x01\n" +
+	"\x0fServerTlsBundle\x12\x12\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x12\x10\n" +
+	"\x03sni\x18\x02 \x03(\tR\x03sni\x12\x19\n" +
+	"\bcert_pem\x18\x03 \x01(\fR\acertPem\x12\x17\n" +
+	"\akey_pem\x18\x04 \x01(\fR\x06keyPem\x12$\n" +
+	"\x0enot_after_unix\x18\x05 \x01(\x03R\fnotAfterUnix\x12\x18\n" +
+	"\aversion\x18\x06 \x01(\tR\aversion\"\xe8\x03\n" +
 	"\bSnapshot\x12\x18\n" +
 	"\aversion\x18\x01 \x01(\tR\aversion\x12#\n" +
 	"\rcontroller_id\x18\x02 \x01(\tR\fcontrollerId\x12,\n" +
@@ -419,7 +518,9 @@ const file_argon_config_proto_rawDesc = "" +
 	"\x11resource_versions\x18\n" +
 	" \x03(\v2,.argon.config.Snapshot.ResourceVersionsEntryR\x10resourceVersions\x12+\n" +
 	"\x06routes\x18\x14 \x03(\v2\x13.argon.config.RouteR\x06routes\x121\n" +
-	"\bclusters\x18\x15 \x03(\v2\x15.argon.config.ClusterR\bclusters\x1aC\n" +
+	"\bclusters\x18\x15 \x03(\v2\x15.argon.config.ClusterR\bclusters\x12<\n" +
+	"\n" +
+	"server_tls\x18\x1e \x03(\v2\x1d.argon.config.ServerTlsBundleR\tserverTls\x1aC\n" +
 	"\x15ResourceVersionsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x012P\n" +
@@ -438,27 +539,29 @@ func file_argon_config_proto_rawDescGZIP() []byte {
 	return file_argon_config_proto_rawDescData
 }
 
-var file_argon_config_proto_msgTypes = make([]protoimpl.MessageInfo, 6)
+var file_argon_config_proto_msgTypes = make([]protoimpl.MessageInfo, 7)
 var file_argon_config_proto_goTypes = []any{
-	(*WatchRequest)(nil), // 0: argon.config.WatchRequest
-	(*Endpoint)(nil),     // 1: argon.config.Endpoint
-	(*Cluster)(nil),      // 2: argon.config.Cluster
-	(*Route)(nil),        // 3: argon.config.Route
-	(*Snapshot)(nil),     // 4: argon.config.Snapshot
-	nil,                  // 5: argon.config.Snapshot.ResourceVersionsEntry
+	(*WatchRequest)(nil),    // 0: argon.config.WatchRequest
+	(*Endpoint)(nil),        // 1: argon.config.Endpoint
+	(*Cluster)(nil),         // 2: argon.config.Cluster
+	(*Route)(nil),           // 3: argon.config.Route
+	(*ServerTlsBundle)(nil), // 4: argon.config.ServerTlsBundle
+	(*Snapshot)(nil),        // 5: argon.config.Snapshot
+	nil,                     // 6: argon.config.Snapshot.ResourceVersionsEntry
 }
 var file_argon_config_proto_depIdxs = []int32{
 	1, // 0: argon.config.Cluster.endpoints:type_name -> argon.config.Endpoint
-	5, // 1: argon.config.Snapshot.resource_versions:type_name -> argon.config.Snapshot.ResourceVersionsEntry
+	6, // 1: argon.config.Snapshot.resource_versions:type_name -> argon.config.Snapshot.ResourceVersionsEntry
 	3, // 2: argon.config.Snapshot.routes:type_name -> argon.config.Route
 	2, // 3: argon.config.Snapshot.clusters:type_name -> argon.config.Cluster
-	0, // 4: argon.config.ConfigDiscovery.Watch:input_type -> argon.config.WatchRequest
-	4, // 5: argon.config.ConfigDiscovery.Watch:output_type -> argon.config.Snapshot
-	5, // [5:6] is the sub-list for method output_type
-	4, // [4:5] is the sub-list for method input_type
-	4, // [4:4] is the sub-list for extension type_name
-	4, // [4:4] is the sub-list for extension extendee
-	0, // [0:4] is the sub-list for field type_name
+	4, // 4: argon.config.Snapshot.server_tls:type_name -> argon.config.ServerTlsBundle
+	0, // 5: argon.config.ConfigDiscovery.Watch:input_type -> argon.config.WatchRequest
+	5, // 6: argon.config.ConfigDiscovery.Watch:output_type -> argon.config.Snapshot
+	6, // [6:7] is the sub-list for method output_type
+	5, // [5:6] is the sub-list for method input_type
+	5, // [5:5] is the sub-list for extension type_name
+	5, // [5:5] is the sub-list for extension extendee
+	0, // [0:5] is the sub-list for field type_name
 }
 
 func init() { file_argon_config_proto_init() }
@@ -472,7 +575,7 @@ func file_argon_config_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_argon_config_proto_rawDesc), len(file_argon_config_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   6,
+			NumMessages:   7,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

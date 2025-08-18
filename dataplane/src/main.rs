@@ -215,7 +215,13 @@ async fn run_https(socket: SocketAddr, state: AppState, server_config: ServerCon
                                 Err(err) => { tracing::error!("TLS accept error: {err}"); return; }
                             };
                             let io = TokioIo::new(tls_stream);
-                            let builder = auto::Builder::new(TokioExecutor::new());
+                            let mut builder = auto::Builder::new(TokioExecutor::new());
+                            builder.http1().title_case_headers(true);
+                            builder
+                            .http2()
+                            .auto_date_header(true)
+                            .enable_connect_protocol();
+
                             let svc = service_fn(move |req: Request<Incoming>| proxy_handler(req, state_cloned.clone()));
                             if let Err(err) = builder.serve_connection_with_upgrades(io, svc).await {
                                 tracing::error!("HTTPS conn error: {err:?}");

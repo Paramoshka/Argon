@@ -1,4 +1,5 @@
 use std::fmt::{Debug, Formatter};
+use std::io::Read;
 use std::sync::Arc;
 use dashmap::DashMap;
 use rustls::crypto::aws_lc_rs::sign::any_supported_type;
@@ -56,16 +57,17 @@ pub fn make_dummy_cert() -> anyhow::Result<Arc<CertifiedKey>> {
     let cert = generate_simple_self_signed(vec![
         "hello.world.example".into(),
         "localhost".into(),
+        "echo.local".into(),
     ])?;
-    
-    let cert_der = CertificateDer::from(cert.signing_key.serialize_der());
+
+    let cert_der = CertificateDer::from(cert.cert);
 
     let key_bytes = cert.signing_key.serialize_der(); // Vec<u8> (pkcs8)
     let key_der: PrivateKeyDer<'static> =
         PrivateKeyDer::from(PrivatePkcs8KeyDer::from(key_bytes));
-    
+
     let signing_key: Arc<dyn SigningKey> = any_supported_type(&key_der)?;
-    
+
     let ck = CertifiedKey::new(vec![cert_der], signing_key);
     Ok(Arc::new(ck))
 }

@@ -1,3 +1,4 @@
+use std::str::FromStr;
 use hyper::{Request, Response};
 use bytes::Bytes;
 use http::{header, HeaderMap, HeaderName, StatusCode, Version};
@@ -80,20 +81,32 @@ pub async fn proxy_handler(
     // trim hop_by_hop headers
     remove_hop_headers(req.headers_mut());
     
-    if req.version() == Version::HTTP_2 {
+    
+    if req.version() == Version::HTTP_2 {  // todo add h1-ssl,h2,h2-ssl for upstream, while h1
+        
+        // origin-form URI (path+query)
+        let path_and_query = req.uri().path_and_query().map(|pq| pq.as_str()).unwrap_or("/");
+        *req.uri_mut() = http::Uri::from_str(path_and_query).unwrap();
+
+        req.headers_mut().insert(
+            header::HOST,
+            http::HeaderValue::from_str(&format!("{}", ep.address)).unwrap_or(http::HeaderValue::from_static("")),
+        );
+
         let io = TokioIo::new(stream);
-        let (mut sender, conn) = hyper::client::conn::http2::Builder::new(TokioExecutor::new())
+        let (mut sender, conn) = hyper::client::conn::http1::Builder::new()
+            .preserve_header_case(true)
+            .title_case_headers(false)
             .handshake(io).await?;
+
         tokio::spawn(async move {
             if let Err(e) = conn.await {
-                tracing::error!("upstream h2 connection error: {e}");
+                tracing::error!("upstream h1 connection error: {e}");
             }
         });
-        
+
         let mut resp = sender.send_request(req).await?;
-        
         remove_hop_headers(resp.headers_mut());
-        
         return Ok(resp.map(|b| b.boxed()));
         
     } else {

@@ -4,6 +4,7 @@ mod proxy;
 mod snapshot;
 mod utils;
 
+use std::collections::HashMap;
 use bytes::Bytes;
 use http::StatusCode;
 use http_body_util::{BodyExt, combinators::BoxBody};
@@ -15,8 +16,10 @@ use hyper_util::{rt::TokioExecutor, server::conn::auto};
 use rustls::ServerConfig;
 use rustls::server::ResolvesServerCert;
 use snapshot::RouteTable;
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::net::{Ipv4Addr, SocketAddr};
 use std::sync::Arc;
+use arc_swap::ArcSwap;
+use rustls::sign::CertifiedKey;
 use tokio::net::TcpListener;
 use tokio::sync::RwLock;
 use tokio::task::JoinSet;
@@ -35,6 +38,7 @@ struct AppState {
     ready: Arc<RwLock<bool>>,
     snapshot: Arc<RwLock<Snapshot>>,
     route_table: Arc<RwLock<Arc<RouteTable>>>,
+    sni: Arc<ArcSwap<HashMap<String, Arc<CertifiedKey>>>>,
 }
 
 #[tokio::main]
@@ -59,6 +63,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         ready: Arc::new(RwLock::new(false)),
         snapshot: Arc::new(RwLock::new(Snapshot::default())),
         route_table: Arc::new(RwLock::new(Arc::new(RouteTable::default()))),
+        sni: Arc::new(ArcSwap::new(Arc::new(HashMap::new()))),
     };
 
     // shutdown token
@@ -88,6 +93,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         state.ready.clone(),
         state.snapshot.clone(),
         state.route_table.clone(),
+        state.sni.clone(),
     );
 
     // healthcheck
@@ -127,7 +133,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let dummy_cert = certs::make_dummy_cert()?;
     let server_cert_resolver: Arc<dyn ResolvesServerCert> =
-        Arc::new(certs::DynResolver::new(dummy_cert));
+        Arc::new(certs::DynResolver::new(dummy_cert, state.sni.clone()));
     let mut server_config = ServerConfig::builder()
         .with_no_client_auth()
         .with_cert_resolver(server_cert_resolver);

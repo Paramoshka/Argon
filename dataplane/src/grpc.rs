@@ -1,21 +1,23 @@
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
+use arc_swap::ArcSwap;
+use rustls::sign::CertifiedKey;
+use tokio::io::AsyncWriteExt;
 use tokio::sync::RwLock;
 use tokio::time::{sleep, timeout};
 use tokio_util::sync::CancellationToken;
-use tracing::{info, warn};
 use tonic::transport::Channel;
+use tracing::{info, warn};
 
 mod argon_config {
     include!("argon.config.rs");
 }
 
 use crate::argon_config::{
-    config_discovery_client,
-    config_discovery_client::ConfigDiscoveryClient,
-    Snapshot,
-    WatchRequest,
+    Snapshot, WatchRequest, config_discovery_client, config_discovery_client::ConfigDiscoveryClient,
 };
+use crate::certs;
 use crate::snapshot::RouteTable;
 
 pub struct GrpcManager {
@@ -24,6 +26,7 @@ pub struct GrpcManager {
     ready: Arc<RwLock<bool>>,
     snapshot: Arc<RwLock<Snapshot>>,
     route_table: Arc<RwLock<Arc<RouteTable>>>,
+    sni: Arc<ArcSwap<HashMap<String, Arc<CertifiedKey>>>>,
 }
 
 impl GrpcManager {
@@ -33,6 +36,7 @@ impl GrpcManager {
         ready: Arc<RwLock<bool>>,
         snapshot: Arc<RwLock<Snapshot>>,
         route_table: Arc<RwLock<Arc<RouteTable>>>,
+        sni: Arc<ArcSwap<HashMap<String, Arc<CertifiedKey>>>>,
     ) -> Self {
         let cancel = CancellationToken::new();
         let cancel_child = cancel.clone();
@@ -40,6 +44,7 @@ impl GrpcManager {
         let ready_for_task = ready.clone();
         let snapshot_for_task = snapshot.clone();
         let route_table_for_task = route_table.clone();
+        let sni_for_task = sni.clone();
 
         let handle = tokio::spawn(async move {
             let mut backoff_ms: u64 = 500;
@@ -85,10 +90,13 @@ impl GrpcManager {
                 let mut client: ConfigDiscoveryClient<Channel> =
                     config_discovery_client::ConfigDiscoveryClient::new(channel);
 
-                // открываем стрим Watch
-                let mut stream = match client.watch(WatchRequest {
-                    node_id: node_id.clone(),
-                }).await {
+                // open sream Watch
+                let mut stream = match client
+                    .watch(WatchRequest {
+                        node_id: node_id.clone(),
+                    })
+                    .await
+                {
                     Ok(resp) => {
                         info!("gRPC watch stream established");
                         {
@@ -107,7 +115,7 @@ impl GrpcManager {
 
                 let mut got_first = false;
 
-                // читаем поток снапшотов
+                // read stream Snapshots
                 loop {
                     if cancel_child.is_cancelled() {
                         info!("gRPC manager: cancellation while streaming");
@@ -129,16 +137,24 @@ impl GrpcManager {
                                 *write_route_table = Arc::new(build_route_table);
                             }
 
+                            // update TLS list
+                            let certs = certs::certificates_from_snap(&snap);
+                            sni_for_task.store(Arc::new(certs));
+
                             if !got_first {
                                 got_first = true;
                                 info!(
                                     "received first snapshot: version={}, routes={}, clusters={}",
-                                    snap.version, snap.routes.len(), snap.clusters.len()
+                                    snap.version,
+                                    snap.routes.len(),
+                                    snap.clusters.len()
                                 );
                             } else {
                                 info!(
                                     "snapshot update: version={}, routes={}, clusters={}",
-                                    snap.version, snap.routes.len(), snap.clusters.len()
+                                    snap.version,
+                                    snap.routes.len(),
+                                    snap.clusters.len()
                                 );
                             }
                         }
@@ -165,7 +181,14 @@ impl GrpcManager {
             }
         });
 
-        Self { cancel, handle, ready, snapshot,  route_table}
+        Self {
+            cancel,
+            handle,
+            ready,
+            snapshot,
+            route_table,
+            sni
+        }
     }
 
     pub async fn shutdown(self) {

@@ -1,30 +1,60 @@
+use std::collections::HashMap;
 use std::fmt::{Debug, Formatter};
-use std::io::Read;
 use std::sync::Arc;
-use dashmap::DashMap;
 use rustls::crypto::aws_lc_rs::sign::any_supported_type;
 use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
 use rustls::server::{ClientHello, ResolvesServerCert};
 use rustls::sign::{CertifiedKey, SigningKey};
 use rcgen::{generate_simple_self_signed};
+use crate::argon_config::Snapshot;
+use arc_swap::ArcSwap;
 
-pub(crate) struct DynResolver {
-    map: DashMap<String, Arc<CertifiedKey>>, // hostname (lowercase, без конечной точки) -> key
+pub struct DynResolver {
+    map: Arc<ArcSwap<HashMap<String, Arc<CertifiedKey>>>>,
     default: Arc<CertifiedKey>,
 }
 
 impl DynResolver {
-    pub(crate) fn new(default: Arc<CertifiedKey>) -> Self {
-        Self { map: DashMap::new(), default }
+    pub fn new(default: Arc<CertifiedKey>, map: Arc<ArcSwap<HashMap<String, Arc<CertifiedKey>>>>) -> Self {
+        Self { map, default }
+    }
+}
+
+pub fn certificates_from_snap(
+    snapshot: &Snapshot,
+) -> HashMap<String, Arc<CertifiedKey>> {
+    let mut map = HashMap::new();
+
+    for sni in &snapshot.server_tls {
+        let name = sni.name.to_ascii_lowercase();
+
+        let cert_der = CertificateDer::from(sni.cert_pem.clone());
+        let key_der: PrivateKeyDer<'static> =
+            PrivateKeyDer::from(PrivatePkcs8KeyDer::from(sni.key_pem.clone()));
+
+        let signing_key = match any_supported_type(&key_der) {
+            Ok(key) => key,
+            Err(e) => {
+                tracing::error!(
+                    host = %sni.name,
+                    error = %e,
+                    "failed to parse signing key"
+                );
+                continue;
+            }
+        };
+
+        let ck = Arc::new(CertifiedKey::new(vec![cert_der], signing_key));
+        map.insert(name, ck);
+
     }
 
-    fn put_host(&self, host: &str, ck: Arc<CertifiedKey>) {
-        self.map.insert(host.to_ascii_lowercase().trim_end_matches('.').to_string(), ck);
-    }
+    tracing::info!(
+        total = snapshot.server_tls.len(),
+        "parsed certificates from snapshot"
+    );
 
-    fn remove_host(&self, host: &str) {
-        self.map.remove(&host.to_ascii_lowercase());
-    }
+    map
 }
 
 impl Debug for DynResolver {
@@ -36,14 +66,14 @@ impl Debug for DynResolver {
 impl ResolvesServerCert for DynResolver {
     fn resolve(&self, hello: ClientHello) -> Option<Arc<CertifiedKey>> {
         let name = hello.server_name()?.to_ascii_lowercase();
-        if let Some(v) = self.map.get(&name) {
+        if let Some(v) = self.map.load().get(&name) {
             return Some(v.clone());
         }
 
         // wildcard
         if let Some(pos) = name.find('.') {
             let star = format!("*.{}", &name[pos+1..]);
-            if let Some(v) = self.map.get(&star) {
+            if let Some(v) = self.map.load().get(&star) {
                 return Some(v.clone());
             }
         }

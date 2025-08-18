@@ -17,7 +17,6 @@ use rustls::server::ResolvesServerCert;
 use snapshot::RouteTable;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::Arc;
-use tokio::io;
 use tokio::net::TcpListener;
 use tokio::sync::RwLock;
 use tokio::task::JoinSet;
@@ -66,6 +65,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let shutdown = CancellationToken::new();
     let shutdown_http = shutdown.clone();
     let shutdown_https = shutdown.clone();
+    let shutdown_select = shutdown.clone();
+
+    {
+        let shut = shutdown.clone();
+        tokio::spawn(async move {
+            let _ = tokio::signal::ctrl_c().await;
+            shut.cancel();
+        });
+    }
 
     // Ctrl+C / SIGTERM -> cancel
     tokio::spawn(async move {
@@ -114,137 +122,119 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     });
 
-    // track active connections HTTP
-    let mut conns = JoinSet::new();
-
-    // HTTP
-    let socket = SocketAddr::new(
-        IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)),
-        http_port.parse::<u16>()?,
-    );
-    let listener = TcpListener::bind(socket).await?;
-    tracing::info!("listening on {}", socket);
-
-    loop {
-        tokio::select! {
-            _ = shutdown_http.cancelled() => {
-                tracing::info!("shutdown requested: stop accepting new connections");
-                break;
-            }
-
-            accept_res = listener.accept() => {
-                let (stream, _) = accept_res?;
-                let io = TokioIo::new(stream);
-                let state_cloned = state.clone();
-                let mut builder = auto::Builder::new(TokioExecutor::new());
-
-                // set http1 options
-                builder
-                .http1()
-                .title_case_headers(true);
-
-                // set http2 options
-                builder
-                .http2()
-                .auto_date_header(true);
-
-                conns.spawn(async move {
-                    let svc = service_fn(move |request: Request<Incoming>| {
-                        proxy_handler(request, state_cloned.clone())
-                    });
-
-                    if let Err(err) = builder
-                        .serve_connection_with_upgrades(io, svc)
-                        .await
-                    {
-                        eprintln!("Failed to serve connection: {:?}", err);
-                    }
-                });
-            }
-        }
-    }
-
-    // HTTPS
-    // track active connections fot https
-    let mut conns_https = JoinSet::new();
+    let http_addr  = SocketAddr::from((Ipv4Addr::UNSPECIFIED, http_port.parse()?));
+    let https_addr = SocketAddr::from((Ipv4Addr::UNSPECIFIED, https_port.parse()?));
 
     let dummy_cert = certs::make_dummy_cert()?;
     let server_cert_resolver: Arc<dyn ResolvesServerCert> =
         Arc::new(certs::DynResolver::new(dummy_cert));
-
-
-    let mut server_config = ServerConfig::builder() 
+    let mut server_config = ServerConfig::builder()
         .with_no_client_auth()
         .with_cert_resolver(server_cert_resolver);
-    server_config.alpn_protocols = vec![
-        b"h2".to_vec(),
-        b"http/1.1".to_vec(),
-        b"http/1.0".to_vec(),
-    ];
+    server_config.alpn_protocols = vec![b"h2".to_vec(), b"http/1.1".to_vec(), b"http/1.0".to_vec()];
 
-    let socket = SocketAddr::new(
-        IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)),
-        https_port.parse::<u16>()?,
-    );
-    
-    let listener = TcpListener::bind(socket).await?;
-    tracing::info!("listening on {}", socket);
 
-    loop {
-        tokio::select! {
-            _ = shutdown_https.cancelled() => {
-                tracing::info!("shutdown requested HTTPS: stop accepting new connections");
-                break;
-            }
+    let http_handle  = tokio::spawn(run_http(http_addr,  state.clone(), shutdown_http.clone()));
+    let https_handle = tokio::spawn(run_https(https_addr, state.clone(), server_config, shutdown_https.clone()));
 
-            accept_res = listener.accept() => {
-                let (stream, _) = accept_res?;
 
-                let state_cloned = state.clone();
-                
-                let tls_acceptor = TlsAcceptor::from(Arc::new(server_config.clone()));
+    shutdown_select.cancelled().await;
+    tracing::info!("shutdown requested; waiting servers to drain...");
 
-                let tls_acceptor = tls_acceptor.clone();
-
-                conns_https.spawn(async move {
-                    let tls_stream = match tls_acceptor.accept(stream).await {
-                        Ok(s) => s,
-                        Err(err) => {
-                            tracing::error!("tls accept error: {err}");
-                            return;
-                        }
-                    };
-
-                    let io = TokioIo::new(tls_stream);
-
-                    let builder_https = auto::Builder::new(
-                        TokioExecutor::new()
-                    );
-
-                    let svc = service_fn(move |req: Request<Incoming>| {
-                        proxy_handler(req, state_cloned.clone())
-                    });
-
-                    if let Err(err) = builder_https
-                        .serve_connection_with_upgrades(io, svc)
-                        .await
-                    {
-                        eprintln!("Failed to serve connection: {err:?}");
-                    }
-                });
-            }
-        }
-    }
-
-    // wait when connections will be finished
-    while conns.join_next().await.is_some() {}
-    while conns_https.join_next().await.is_some() {}
+    if let Err(e) = http_handle.await { tracing::error!("HTTP task join error: {e:?}"); }
+    if let Err(e) = https_handle.await { tracing::error!("HTTPS task join error: {e:?}"); }
 
     // shutdown gRPC server after http server
     manager.shutdown().await;
 
     Ok(())
 }
+
+async fn run_http(socket: SocketAddr, state: AppState, shutdown: CancellationToken) -> anyhow::Result<()> {
+    let listener = TcpListener::bind(socket).await?;
+    tracing::info!("HTTP listening on {}", socket);
+
+    let mut conns = JoinSet::new();
+    let mut builder = auto::Builder::new(TokioExecutor::new());
+    builder.http1().title_case_headers(true);
+    builder.http2().auto_date_header(true);
+
+    loop {
+        tokio::select! {
+            _ = shutdown.cancelled() => {
+                tracing::info!("HTTP: stop accepting new connections");
+                break;
+            }
+            res = listener.accept() => {
+                match res {
+                    Ok((stream, _)) => {
+                        let io = TokioIo::new(stream);
+                        let state_cloned = state.clone();
+                        let builder = builder.clone();
+                        conns.spawn(async move {
+                            let svc = service_fn(move |req: Request<Incoming>| proxy_handler(req, state_cloned.clone()));
+                            if let Err(err) = builder.serve_connection_with_upgrades(io, svc).await {
+                                tracing::error!("HTTP conn error: {err:?}");
+                            }
+                        });
+                    }
+                    Err(e) => {
+                        tracing::warn!("HTTP accept error: {e}; retry in 100ms");
+                        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                    }
+                }
+            }
+        }
+    }
+
+    while conns.join_next().await.is_some() {}
+    Ok(())
+}
+
+async fn run_https(socket: SocketAddr, state: AppState, server_config: ServerConfig, shutdown: CancellationToken) -> anyhow::Result<()> {
+    let listener = TcpListener::bind(socket).await?;
+    tracing::info!("HTTPS listening on {}", socket);
+
+    let mut conns = JoinSet::new();
+    let tls_acceptor = TlsAcceptor::from(Arc::new(server_config));
+
+    loop {
+        tokio::select! {
+            _ = shutdown.cancelled() => {
+                tracing::info!("HTTPS: stop accepting new connections");
+                break;
+            }
+            res = listener.accept() => {
+                match res {
+                    Ok((stream, _)) => {
+                        let tls_acceptor = tls_acceptor.clone();
+                        let state_cloned = state.clone();
+                        conns.spawn(async move {
+                            let tls_stream = match tls_acceptor.accept(stream).await {
+                                Ok(s) => s,
+                                Err(err) => { tracing::error!("TLS accept error: {err}"); return; }
+                            };
+                            let io = TokioIo::new(tls_stream);
+                            let builder = auto::Builder::new(TokioExecutor::new());
+                            let svc = service_fn(move |req: Request<Incoming>| proxy_handler(req, state_cloned.clone()));
+                            if let Err(err) = builder.serve_connection_with_upgrades(io, svc).await {
+                                tracing::error!("HTTPS conn error: {err:?}");
+                            }
+                        });
+                    }
+                    Err(e) => {
+                        tracing::warn!("HTTPS accept error: {e}; retry in 100ms");
+                        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                    }
+                }
+            }
+        }
+    }
+
+    while conns.join_next().await.is_some() {}
+    Ok(())
+}
+
 
 pub async fn echo(
     req: Request<Incoming>,

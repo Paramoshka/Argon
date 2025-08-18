@@ -2,7 +2,7 @@ use std::cmp::PartialEq;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use crate::argon_config::{Cluster, Endpoint, Snapshot};
+use crate::argon_config::{Endpoint, Snapshot};
 
 #[derive(Clone, Debug)]
 pub struct RouteRule {

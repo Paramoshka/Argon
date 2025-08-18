@@ -19,6 +19,7 @@ package controller
 import (
 	"context"
 	"crypto/sha256"
+	"crypto/x509"
 	"encoding/hex"
 	"fmt"
 	"slices"
@@ -101,6 +102,47 @@ func (r *ArgonConfigReconciler) parseEndpoints(ctx context.Context, ingList *net
 	var targetProxies []TargetProxy
 
 	for _, ing := range ingList.Items {
+
+		// tls
+		var bundle TLSSecret
+
+		for _, tls := range ing.Spec.TLS {
+			if tls.SecretName == "" || len(tls.Hosts) == 0 {
+				continue
+			}
+
+			var secret corev1.Secret
+			if err := r.Get(ctx, client.ObjectKey{Name: tls.SecretName, Namespace: ing.Namespace}, &secret); err != nil {
+				continue
+			}
+
+			crt := secret.Data["tls.crt"]
+			key := secret.Data["tls.key"]
+
+			if len(crt) == 0 || len(key) == 0 {
+				continue
+			}
+
+			sum := sha256.Sum256(append(crt, key...))
+
+			cert, err := x509.ParseCertificate(crt)
+			if err != nil {
+				continue
+			}
+
+			notAfter := cert.NotAfter
+
+			bundle = TLSSecret{
+				Name:         fmt.Sprintf("%s/%s", ing.Namespace, tls.SecretName),
+				Sni:          tls.Hosts,
+				CertPem:      crt,
+				KeyPem:       key,
+				NotAfterUnix: notAfter,
+				Version:      hex.EncodeToString(sum[:]),
+			}
+
+		}
+
 		for _, rule := range ing.Spec.Rules {
 			if rule.HTTP == nil {
 				continue
@@ -109,6 +151,7 @@ func (r *ArgonConfigReconciler) parseEndpoints(ctx context.Context, ingList *net
 			target := TargetProxy{
 				Host: rule.Host,
 				Path: make(map[string]TargetEndpoint),
+				SNI:  bundle,
 			}
 
 			for _, p := range rule.HTTP.Paths {
@@ -116,6 +159,7 @@ func (r *ArgonConfigReconciler) parseEndpoints(ctx context.Context, ingList *net
 				if be.Service == nil {
 					continue
 				}
+
 				svcName := be.Service.Name
 
 				var slices discoveryv1.EndpointSliceList
@@ -128,7 +172,7 @@ func (r *ArgonConfigReconciler) parseEndpoints(ctx context.Context, ingList *net
 
 				var allAddrs []string
 				var chosenPort *int32
-				var proto corev1.Protocol = corev1.ProtocolTCP
+				var proto = corev1.ProtocolTCP
 
 				for _, slice := range slices.Items {
 
@@ -164,6 +208,7 @@ func (r *ArgonConfigReconciler) parseEndpoints(ctx context.Context, ingList *net
 					Port:      *chosenPort,
 					Protocol:  proto,
 					Addresses: allAddrs,
+					PathType:  p.PathType,
 				}
 			}
 
@@ -182,18 +227,21 @@ func (r *ArgonConfigReconciler) ToSnapshot(targets []TargetProxy) Snapshot {
 		IngressClassName:   r.IngressClass,
 		GeneratedAtUnixSec: time.Now().Unix(),
 		ResourceVersions:   make(map[string]string),
+		TLS:                make([]TLSSecret, 0),
 	}
 
 	for _, tp := range targets {
+		snap.TLS = append(snap.TLS, tp.SNI)
+
 		for path, te := range tp.Path {
 			clusterName := fmt.Sprintf("%s|%s", tp.Host, path)
 
 			snap.Routes = append(snap.Routes, Route{
 				Host:     tp.Host,
 				Path:     path,
-				PathType: PathPrefix,
+				PathType: te.PathType,
 				Cluster:  clusterName,
-				Priority: len(path),
+				Priority: int(RoutePriority(path, *te.PathType)),
 			})
 
 			cluster := Cluster{
@@ -210,31 +258,15 @@ func (r *ArgonConfigReconciler) ToSnapshot(targets []TargetProxy) Snapshot {
 					Weight:  1,
 				})
 			}
-			// детерминистика
-			sort.Slice(cluster.Endpoints, func(i, j int) bool {
-				if cluster.Endpoints[i].Address == cluster.Endpoints[j].Address {
-					return cluster.Endpoints[i].Port < cluster.Endpoints[j].Port
-				}
-				return cluster.Endpoints[i].Address < cluster.Endpoints[j].Address
-			})
 
 			snap.Clusters = append(snap.Clusters, cluster)
 		}
 	}
 
-	sort.Slice(snap.Routes, func(i, j int) bool {
-		if snap.Routes[i].Host == snap.Routes[j].Host {
-			if snap.Routes[i].Priority == snap.Routes[j].Priority {
-				return snap.Routes[i].Path < snap.Routes[j].Path
-			}
-			return snap.Routes[i].Priority > snap.Routes[j].Priority
-		}
-		return snap.Routes[i].Host < snap.Routes[j].Host
-	})
-	sort.Slice(snap.Clusters, func(i, j int) bool { return snap.Clusters[i].Name < snap.Clusters[j].Name })
+	snap.Sort() // determinism
 
 	sum := sha256.Sum256([]byte(
-		fmt.Sprintf("%+v%+v", snap.Routes, snap.Clusters),
+		fmt.Sprintf("%+v%+v+%v", snap.Routes, snap.Clusters, snap.TLS),
 	))
 
 	snap.Version = hex.EncodeToString(sum[:])

@@ -1,10 +1,11 @@
 package model
 
 import (
-	"bytes"
-	"encoding/hex"
-	"github.com/golang/protobuf/ptypes/timestamp"
+	"sort"
+	"time"
+
 	corev1 "k8s.io/api/core/v1"
+	v1networking "k8s.io/api/networking/v1"
 )
 
 type Snapshot struct {
@@ -27,23 +28,62 @@ type Snapshot struct {
 	Policies *Policies     `json:"policies,omitempty"`
 }
 
-// Route
-type Route struct {
-	Host     string   `json:"host"`               // demo.local
-	Path     string   `json:"path"`               // "/api"
-	PathType PathType `json:"pathType"`           // Prefix|Exact|Regex (на старте Prefix/Exact)
-	Cluster  string   `json:"cluster"`            // name cluster
-	Priority int      `json:"priority,omitempty"` // for sort matches
+func (snap *Snapshot) Sort() {
+	sort.Slice(snap.Routes, func(i, j int) bool {
+		ri, rj := snap.Routes[i], snap.Routes[j]
+		if ri.Priority != rj.Priority {
+			return ri.Priority > rj.Priority
+		}
+		if ri.Host != rj.Host {
+			return ri.Host < rj.Host
+		}
+
+		if ri.Path != rj.Path {
+			return ri.Path < rj.Path
+		}
+
+		if ri.PathType != rj.PathType {
+			return pathTypeRank(*ri.PathType) > pathTypeRank(*rj.PathType)
+		}
+		return ri.Cluster < rj.Cluster
+	})
+
+	sort.Slice(snap.Clusters, func(i, j int) bool {
+		return snap.Clusters[i].Name < snap.Clusters[j].Name
+	})
+
+	sort.Slice(snap.TLS, func(i, j int) bool {
+		return snap.TLS[i].Name < snap.TLS[j].Name
+	})
+
 }
 
-// PathType
-type PathType string
+func pathTypeRank(pt v1networking.PathType) int {
+	switch pt {
+	case v1networking.PathTypeExact:
+		return 3
+	case v1networking.PathTypePrefix:
+		return 2
+	case v1networking.PathTypeImplementationSpecific:
+		return 1
+	default:
+		return 0
+	}
+}
 
-const (
-	PathPrefix PathType = "Prefix"
-	PathExact  PathType = "Exact"
-	PathRegex  PathType = "Regex" //
-)
+func RoutePriority(path string, pt v1networking.PathType) int64 {
+	const K = int64(1_000_000)
+	return int64(pathTypeRank(pt))*K + int64(len(path))
+}
+
+// Route
+type Route struct {
+	Host     string                 `json:"host"`               // demo.local
+	Path     string                 `json:"path"`               // "/api"
+	PathType *v1networking.PathType `json:"pathType"`           // Prefix|Exact|Regex (Prefix/Exact)
+	Cluster  string                 `json:"cluster"`            // name cluster
+	Priority int                    `json:"priority,omitempty"` // for sort matches
+}
 
 // Cluster — logical backend (host+path or name service)
 type Cluster struct {
@@ -78,7 +118,7 @@ type TLSSecret struct {
 	Sni          []string
 	CertPem      []byte
 	KeyPem       []byte
-	NotAfterUnix timestamp.Timestamp
+	NotAfterUnix time.Time
 	Version      string
 }
 
@@ -100,10 +140,12 @@ type CountryRoute struct {
 type TargetProxy struct {
 	Host string
 	Path map[string]TargetEndpoint
+	SNI  TLSSecret
 }
 
 type TargetEndpoint struct {
 	Port      int32
 	Protocol  corev1.Protocol
 	Addresses []string
+	PathType  *v1networking.PathType
 }

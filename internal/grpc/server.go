@@ -73,13 +73,15 @@ func toPbSnapshot(in Snapshot) *argonpb.Snapshot {
 		ResourceVersions:   in.ResourceVersions,
 		Routes:             make([]*argonpb.Route, 0, len(in.Routes)),
 		Clusters:           make([]*argonpb.Cluster, 0, len(in.Clusters)),
+		ServerTls:          make([]*argonpb.ServerTlsBundle, 0),
 	}
 	for _, r := range in.Routes {
 		pb.Routes = append(pb.Routes, &argonpb.Route{
-			Host: r.Host, Path: r.Path, PathType: string(r.PathType),
+			Host: r.Host, Path: r.Path, PathType: string(*r.PathType),
 			Cluster: r.Cluster, Priority: int32(r.Priority),
 		})
 	}
+
 	for _, c := range in.Clusters {
 		pc := &argonpb.Cluster{
 			Name: c.Name, LbPolicy: string(c.LBPolicy),
@@ -93,5 +95,17 @@ func toPbSnapshot(in Snapshot) *argonpb.Snapshot {
 		}
 		pb.Clusters = append(pb.Clusters, pc)
 	}
+
+	for _, cert := range in.TLS {
+		pb.ServerTls = append(pb.ServerTls, &argonpb.ServerTlsBundle{
+			Name:         cert.Name,
+			Sni:          cert.Sni,
+			CertPem:      cert.CertPem,
+			KeyPem:       cert.KeyPem,
+			NotAfterUnix: cert.NotAfterUnix.Unix(),
+			Version:      cert.Version,
+		})
+	}
+
 	return pb
 }

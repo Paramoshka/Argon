@@ -1,8 +1,8 @@
+mod certs;
 mod grpc;
 mod proxy;
 mod snapshot;
 mod utils;
-mod certs;
 
 use bytes::Bytes;
 use http::StatusCode;
@@ -12,27 +12,24 @@ use hyper::service::service_fn;
 use hyper::{Method, Request, Response};
 use hyper_util::rt::TokioIo;
 use hyper_util::{rt::TokioExecutor, server::conn::auto};
+use rustls::ServerConfig;
+use rustls::server::ResolvesServerCert;
 use snapshot::RouteTable;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::Arc;
-use rustls::server::ResolvesServerCert;
+use tokio::io;
 use tokio::net::TcpListener;
 use tokio::sync::RwLock;
 use tokio::task::JoinSet;
-use tokio_util::sync::CancellationToken;
-use rustls::ServerConfig;
-use rustls::sign::CertifiedKey;
-use tokio::io;
 use tokio_rustls::TlsAcceptor;
+use tokio_util::sync::CancellationToken;
 
 mod argon_config {
     include!("argon.config.rs");
 }
-use argon_config::Snapshot;
 use crate::grpc::GrpcManager;
 use crate::proxy::proxy_handler;
-
-// type ServerBuilder = hyper::server::conn::http1::Builder;
+use argon_config::Snapshot;
 
 #[derive(Clone, Default)]
 struct AppState {
@@ -58,7 +55,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .compact()
         .init();
 
-    // start not-ready; снап — пустой (Default)
+    // start not-ready; snap is empty (Default)
     let state = AppState {
         ready: Arc::new(RwLock::new(false)),
         snapshot: Arc::new(RwLock::new(Snapshot::default())),
@@ -117,7 +114,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     });
 
-    // track active connections
+    // track active connections HTTP
     let mut conns = JoinSet::new();
 
     // HTTP
@@ -171,43 +168,77 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // track active connections fot https
     let mut conns_https = JoinSet::new();
 
+    let dummy_cert = certs::make_dummy_cert()?;
+    let server_cert_resolver: Arc<dyn ResolvesServerCert> =
+        Arc::new(certs::DynResolver::new(dummy_cert));
+
+
+    let mut server_config = ServerConfig::builder() 
+        .with_no_client_auth()
+        .with_cert_resolver(server_cert_resolver);
+    server_config.alpn_protocols = vec![
+        b"h2".to_vec(),
+        b"http/1.1".to_vec(),
+        b"http/1.0".to_vec(),
+    ];
+
     let socket = SocketAddr::new(
         IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)),
         https_port.parse::<u16>()?,
     );
+    
     let listener = TcpListener::bind(socket).await?;
     tracing::info!("listening on {}", socket);
 
     loop {
         tokio::select! {
-                _ = shutdown_https.cancelled() => {
-                    tracing::info!("shutdown requested HTTPS: stop accepting new connections");
-                    break;
-                }
-
-                accept_res = listener.accept() => {
-                    let (stream, _) = accept_res?;
-                    let io = TokioIo::new(stream);
-                    let state_cloned = state.clone();
-
-                let dummy_cert = certs::make_dummy_cert()?;
-                let server_cert_resolver: Arc<dyn ResolvesServerCert> = Arc::new(certs::DynResolver::new(dummy_cert));
-
-                // Build TLS configuration.
-                    let mut server_config = ServerConfig::builder()
-                        .with_no_client_auth()
-                        .with_cert_resolver(server_cert_resolver);
-
-
-                    server_config.alpn_protocols = vec![b"h2".to_vec(), b"http/1.1".to_vec(), b"http/1.0".to_vec()];
-                    let tls_acceptor = TlsAcceptor::from(Arc::new(server_config));
-
-                }
+            _ = shutdown_https.cancelled() => {
+                tracing::info!("shutdown requested HTTPS: stop accepting new connections");
+                break;
             }
+
+            accept_res = listener.accept() => {
+                let (stream, _) = accept_res?;
+
+                let state_cloned = state.clone();
+                
+                let tls_acceptor = TlsAcceptor::from(Arc::new(server_config.clone()));
+
+                let tls_acceptor = tls_acceptor.clone();
+
+                conns_https.spawn(async move {
+                    let tls_stream = match tls_acceptor.accept(stream).await {
+                        Ok(s) => s,
+                        Err(err) => {
+                            tracing::error!("tls accept error: {err}");
+                            return;
+                        }
+                    };
+
+                    let io = TokioIo::new(tls_stream);
+
+                    let builder_https = auto::Builder::new(
+                        TokioExecutor::new()
+                    );
+
+                    let svc = service_fn(move |req: Request<Incoming>| {
+                        proxy_handler(req, state_cloned.clone())
+                    });
+
+                    if let Err(err) = builder_https
+                        .serve_connection_with_upgrades(io, svc)
+                        .await
+                    {
+                        eprintln!("Failed to serve connection: {err:?}");
+                    }
+                });
+            }
+        }
     }
 
     // wait when connections will be finished
     while conns.join_next().await.is_some() {}
+    while conns_https.join_next().await.is_some() {}
 
     // shutdown gRPC server after http server
     manager.shutdown().await;
@@ -242,8 +273,4 @@ pub async fn echo(
             Ok(not_found)
         }
     }
-}
-
-fn error(err: String) -> io::Error {
-    io::Error::new(io::ErrorKind::Other, err)
 }

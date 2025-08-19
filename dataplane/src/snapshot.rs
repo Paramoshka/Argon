@@ -128,7 +128,6 @@ impl RouteTable {
     pub fn choose_route<'a>(&'a self, host: &str, path: &str) -> Option<&'a RouteRule> {
         if let Some(route_rule) = self.routes_by_host.get(host) {
             if let Some(rule) = Self::match_in_bucket(route_rule, path) {
-                // println!("For host {} found in path {:?}", host, route_rule);
                 return Some(rule);
             }
         }
@@ -139,10 +138,13 @@ impl RouteTable {
             }
         }
 
+       // println!("For host {} found in path {:?}", host, self.routes_by_host);
+
         None
     }
 
-    // get path if match
+    // get path if match 
+    // todo make Prefix in more precision and add Implemented     
     fn match_in_bucket<'a>(rules: &'a [RouteRule], path: &str) -> Option<&'a RouteRule> {
         rules.iter().find(|r| match r.path_type {
             PathType::Exact => r.path == path,

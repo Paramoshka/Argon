@@ -100,7 +100,7 @@ impl RouteTable {
             }
         }
 
-        // sorting in each bucket: priority, path.len, Exact, Prefvfix
+        // sorting in each bucket: priority, path.len, Exact, Prefix
         for v in buckets.values_mut() {
             v.sort_by(|a, b| {
                 b.priority.cmp(&a.priority)

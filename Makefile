@@ -1,6 +1,6 @@
 # Image URL to use all building/pushing image targets
-IMG ?= mypathinmyheart/argon-controller:latest
-IMG_DATAPLANE ?= mypathinmyheart/argon-dataplane:latest
+IMG ?= paramoshka/argon-controller:latest
+IMG_DATAPLANE ?= paramoshka/argon-dataplane:latest
 
 # Get the currently used golang install path (in GOPATH/bin, unless GOBIN is set)
 ifeq (,$(shell go env GOBIN))
@@ -118,8 +118,8 @@ run: manifests generate fmt vet ## Run a controller from your host.
 # More info: https://docs.docker.com/develop/develop-images/build_enhancements/
 .PHONY: docker-build
 docker-build: ## Build docker image with the manager.
-	$(CONTAINER_TOOL) build -t ${IMG} . -f build/Dockerfile.controller
-	$(CONTAINER_TOOL) build -t ${IMG_DATAPLANE} . -f build/Dockerfile.dataplane
+	$(CONTAINER_TOOL) build -t ${IMG} . -f build/controller/Dockerfile
+	$(CONTAINER_TOOL) build -t ${IMG_DATAPLANE} . -f build/dataplane/Dockerfile
 
 .PHONY: docker-push
 docker-push: ## Push docker image with the manager.

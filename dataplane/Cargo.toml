@@ -24,6 +24,7 @@ tokio-rustls = "0.26.2"
 rcgen = "0.14.3"
 anyhow = "1.0.98"
 arc-swap = "1.7.1"
+rustls-pemfile = { version = "2.2.0"}
 # prost-types = "0.13"
 
 [build-dependencies]

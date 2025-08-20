@@ -101,7 +101,7 @@ dataplane:
 # Images (shared)
 # ---------------------------
 image:
-  repository: mypathinmyheart/argon  # Will be used as <repo>-controller / <repo>-dataplane
+  repository: paramoshka/argon  # Will be used as <repo>-controller / <repo>-dataplane
   tag: "latest"
   pullPolicy: Always
   # pullPolicy: IfNotPresent

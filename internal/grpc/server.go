@@ -8,6 +8,7 @@ import (
 	. "argon.github.io/ingress/internal/model"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/keepalive"
+	"sigs.k8s.io/controller-runtime/pkg/log"
 )
 
 type Server struct {
@@ -65,6 +66,8 @@ func RunGRPC(ctx context.Context, addr string, hub *StreamHub) error {
 // ===== model -> pb =====
 
 func toPbSnapshot(in Snapshot) *argonpb.Snapshot {
+	logger := log.FromContext(context.Background()) // ctrl-runtime logger
+
 	pb := &argonpb.Snapshot{
 		Version:            in.Version,
 		ControllerId:       in.ControllerID,
@@ -105,7 +108,10 @@ func toPbSnapshot(in Snapshot) *argonpb.Snapshot {
 			NotAfterUnix: cert.NotAfterUnix.Unix(),
 			Version:      cert.Version,
 		})
+
+		logger.V(1).Info("TLS certs in gRPC", "name: ", cert.Name, "SNI: ", cert.Sni)
 	}
 
+	logger.V(1).Info("count TLS certs", "count", len(pb.ServerTls))
 	return pb
 }

@@ -21,6 +21,7 @@ import (
 	"crypto/sha256"
 	"crypto/x509"
 	"encoding/hex"
+	"encoding/pem"
 	"fmt"
 	"slices"
 	"sort"
@@ -34,6 +35,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/log"
 )
 
 // ArgonConfigReconciler reconciles a ArgonConfig object
@@ -100,8 +102,10 @@ func (r *ArgonConfigReconciler) SetupWithManager(mgr ctrl.Manager) error {
 
 func (r *ArgonConfigReconciler) parseEndpoints(ctx context.Context, ingList *networkingv1.IngressList) ([]TargetProxy, error) {
 	var targetProxies []TargetProxy
+	logger := log.FromContext(ctx) // ctrl-runtime logger
 
 	for _, ing := range ingList.Items {
+		logger.V(1).Info("processing ingress", "ns", ing.Namespace, "name", ing.Name)
 
 		// tls
 		var bundle TLSSecret
@@ -113,6 +117,7 @@ func (r *ArgonConfigReconciler) parseEndpoints(ctx context.Context, ingList *net
 
 			var secret corev1.Secret
 			if err := r.Get(ctx, client.ObjectKey{Name: tls.SecretName, Namespace: ing.Namespace}, &secret); err != nil {
+				logger.Error(err, "get TLS secret failed", "ns", ing.Namespace, "secret", tls.SecretName)
 				continue
 			}
 
@@ -120,17 +125,24 @@ func (r *ArgonConfigReconciler) parseEndpoints(ctx context.Context, ingList *net
 			key := secret.Data["tls.key"]
 
 			if len(crt) == 0 || len(key) == 0 {
+				logger.Info("TLS secret missing tls.crt or tls.key", "ns", ing.Namespace, "secret", tls.SecretName)
 				continue
 			}
 
 			sum := sha256.Sum256(append(crt, key...))
 
-			cert, err := x509.ParseCertificate(crt)
-			if err != nil {
+			block, _ := pem.Decode(crt)
+			if block == nil {
+				logger.Info("failed to PEM-decode tls.crt", "ns", ing.Namespace, "secret", tls.SecretName)
 				continue
 			}
 
-			notAfter := cert.NotAfter
+			certs, err := x509.ParseCertificates(block.Bytes)
+			if err != nil || len(certs) == 0 {
+				logger.Error(err, "parse certificate failed", "ns", ing.Namespace, "secret", tls.SecretName)
+				continue
+			}
+			notAfter := certs[0].NotAfter
 
 			bundle = TLSSecret{
 				Name:         fmt.Sprintf("%s/%s", ing.Namespace, tls.SecretName),
@@ -140,6 +152,8 @@ func (r *ArgonConfigReconciler) parseEndpoints(ctx context.Context, ingList *net
 				NotAfterUnix: notAfter,
 				Version:      hex.EncodeToString(sum[:]),
 			}
+
+			logger.V(1).Info("TLS bundle prepared", "secret", bundle.Name, "hosts", bundle.Sni, "notAfter", notAfter)
 
 		}
 
@@ -218,10 +232,12 @@ func (r *ArgonConfigReconciler) parseEndpoints(ctx context.Context, ingList *net
 		}
 	}
 
+	logger.Info("endpoints parsed", "targets", len(targetProxies))
 	return targetProxies, nil
 }
 
 func (r *ArgonConfigReconciler) ToSnapshot(targets []TargetProxy) Snapshot {
+
 	snap := Snapshot{
 		ControllerID:       "argon.github.io/ingress",
 		IngressClassName:   r.IngressClass,
@@ -231,7 +247,9 @@ func (r *ArgonConfigReconciler) ToSnapshot(targets []TargetProxy) Snapshot {
 	}
 
 	for _, tp := range targets {
-		snap.TLS = append(snap.TLS, tp.SNI)
+		if tp.SNI.Name != "" {
+			snap.TLS = append(snap.TLS, tp.SNI)
+		}
 
 		for path, te := range tp.Path {
 			clusterName := fmt.Sprintf("%s|%s", tp.Host, path)

@@ -5,7 +5,7 @@
 # This role is intended for users who need visibility into these resources
 # without permissions to modify them. It is ideal for monitoring purposes and limited-access viewing.
 
-apiVersion: rbac.authorization.k8s.io/v1
+apiVersion: rbac.yaml.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
   labels:

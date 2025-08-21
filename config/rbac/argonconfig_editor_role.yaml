@@ -5,7 +5,7 @@
 # This role is intended for users who need to manage these resources
 # but should not control RBAC or manage permissions for others.
 
-apiVersion: rbac.authorization.k8s.io/v1
+apiVersion: rbac.yaml.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
   labels:

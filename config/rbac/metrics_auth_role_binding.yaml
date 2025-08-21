@@ -1,9 +1,9 @@
-apiVersion: rbac.authorization.k8s.io/v1
+apiVersion: rbac.yaml.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
   name: metrics-auth-rolebinding
 roleRef:
-  apiGroup: rbac.authorization.k8s.io
+  apiGroup: rbac.yaml.authorization.k8s.io
   kind: ClusterRole
   name: metrics-auth-role
 subjects:

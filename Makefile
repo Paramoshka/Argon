@@ -240,6 +240,13 @@ proto-gen:
 	cd dataplane && cargo build
 	@echo "✅ Proto generation done."
 
+.PHONY: helm-pack
+helm-pack:
+	@echo "Packing helm"
+	helm package helm -d .deploy;
+	helm repo index .deploy --url https://github.com/Paramoshka/Argon/tree/main/.deploy
+
+
 
 
 

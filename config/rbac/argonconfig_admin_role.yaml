@@ -5,7 +5,7 @@
 # This role is intended for users authorized to modify roles and bindings within the cluster,
 # enabling them to delegate specific permissions to other users or groups as needed.
 
-apiVersion: rbac.authorization.k8s.io/v1
+apiVersion: rbac.yaml.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
   labels:

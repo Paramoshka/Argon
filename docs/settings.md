@@ -32,7 +32,7 @@ Per-request upstream timeout in milliseconds. This caps the total time to connec
 
 Type: integer (recommend quoting in YAML, e.g. "15000").
 
-Default: 5000 (5s).
+Default: 3000 (3s).
 
 Valid range: 1–120000 ms (values outside are clamped or rejected; see controller logs).
 

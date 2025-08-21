@@ -201,19 +201,18 @@ func (r *ArgonConfigReconciler) parseEndpoints(ctx context.Context, ingList *net
 				var allAddrs []string
 				var chosenPort *int32
 				var proto = corev1.ProtocolTCP
+				portName, _ := resolveServicePortName(ctx, r.Client, ing.Namespace, svcName, &be)
 
 				for _, slice := range slices.Items {
 
-					matched := matchSlicePort(slice, &be)
+					matched := matchSlicePortByName(slice, portName)
 					if matched == nil {
 						continue
 					}
-
 					if chosenPort == nil {
 						chosenPort = matched
 						proto = portProtocol(slice, matched)
 					}
-
 					if *matched != *chosenPort {
 						continue
 					}
@@ -324,30 +323,6 @@ func portProtocol(slice discoveryv1.EndpointSlice, matched *int32) corev1.Protoc
 	return corev1.ProtocolTCP
 }
 
-func matchSlicePort(slice discoveryv1.EndpointSlice, be *networkingv1.IngressBackend) *int32 {
-	if be == nil || be.Service == nil {
-		return nil
-	}
-	wantNum := be.Service.Port.Number
-	wantName := be.Service.Port.Name
-
-	for _, sp := range slice.Ports {
-		if sp.Port == nil {
-			continue
-		}
-
-		if wantNum != 0 && *sp.Port == wantNum {
-			return sp.Port
-		}
-
-		if wantName != "" && sp.Name != nil && *sp.Name == wantName {
-			return sp.Port
-		}
-	}
-
-	return nil
-}
-
 func appendUnique(dst []string, src ...string) []string {
 	for _, addr := range src {
 		if !slices.Contains(dst, addr) {
@@ -356,4 +331,42 @@ func appendUnique(dst []string, src ...string) []string {
 	}
 
 	return dst
+}
+
+func resolveServicePortName(ctx context.Context, c client.Client, ns, svcName string, be *networkingv1.IngressBackend) (string, error) {
+	if be == nil || be.Service == nil {
+		return "", nil
+	}
+	var svc corev1.Service
+	if err := c.Get(ctx, client.ObjectKey{Namespace: ns, Name: svcName}, &svc); err != nil {
+		return "", err
+	}
+
+	if be.Service.Port.Name != "" {
+		return be.Service.Port.Name, nil
+	}
+
+	if num := be.Service.Port.Number; num != 0 {
+		for _, p := range svc.Spec.Ports {
+			if p.Port == num {
+				return p.Name, nil
+			}
+		}
+	}
+	return "", nil
+}
+
+func matchSlicePortByName(slice discoveryv1.EndpointSlice, portName string) *int32 {
+	for _, sp := range slice.Ports {
+		if sp.Port == nil {
+			continue
+		}
+		if portName == "" {
+			return sp.Port
+		}
+		if sp.Name != nil && *sp.Name == portName {
+			return sp.Port
+		}
+	}
+	return nil
 }

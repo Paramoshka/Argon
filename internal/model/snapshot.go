@@ -91,8 +91,9 @@ type Cluster struct {
 	LBPolicy  LBPolicy   `json:"lbPolicy,omitempty"` // RR
 	Endpoints []Endpoint `json:"endpoints"`
 	// retries/timeouts/health-check
-	TimeoutMs int32 `json:"timeoutMs,omitempty"`
-	Retries   int32 `json:"retries,omitempty"`
+	TimeoutMs       int32  `json:"timeoutMs,omitempty"`
+	Retries         int32  `json:"retries,omitempty"`
+	BackendProtocol string `json:"backendProtocol,omitempty"`
 }
 
 type LBPolicy string
@@ -144,8 +145,11 @@ type TargetProxy struct {
 }
 
 type TargetEndpoint struct {
-	Port      int32
-	Protocol  corev1.Protocol
-	Addresses []string
-	PathType  *v1networking.PathType
+	Port            int32
+	Protocol        corev1.Protocol
+	BackendProtocol string
+	Addresses       []string
+	PathType        *v1networking.PathType
+	Retries         int32
+	TimeoutMs       int32
 }

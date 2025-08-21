@@ -21,6 +21,7 @@ message Cluster {
   repeated Endpoint endpoints = 3;
   int32 timeout_ms = 4;
   int32 retries    = 5;
+  string backend_protocol =6;
 }
 
 message Route {

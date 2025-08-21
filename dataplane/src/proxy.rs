@@ -1,5 +1,5 @@
 use crate::AppState;
-use crate::snapshot::RouteTable;
+use crate::snapshot::{BackendProtocol, ClusterRule, RouteTable};
 use crate::utils;
 use bytes::Bytes;
 use http::uri::{Authority, PathAndQuery};
@@ -7,11 +7,14 @@ use http::{HeaderMap, HeaderName, HeaderValue, StatusCode, Uri, Version, header}
 use http_body_util::{BodyExt, combinators::BoxBody};
 use hyper::body::Incoming;
 use hyper::{Request, Response};
-use hyper_util::rt::TokioIo;
+use hyper_util::rt::{TokioExecutor, TokioIo, TokioTimer};
 use std::arch::x86_64::_mm256_hsub_epi16;
 use std::str::FromStr;
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::net::TcpStream;
+use tokio::time::timeout;
+use tokio_util::future::FutureExt;
 
 pub struct Proxy;
 
@@ -63,6 +66,15 @@ pub async fn proxy_handler(
         }
     };
 
+    // <--Get cluster rules-->
+    let cluster_rules = match route_table.get_cluster_rules(rule.cluster.as_str()) {
+        Some(r) => r,
+        None => {
+            tracing::error!(cluster=%rule.cluster, "cluster rule not found");
+            return Ok(text(StatusCode::NOT_FOUND, "cluster rules not found"));
+        }
+    };
+
     // <--Select LB algorithm-->
     let ep = match route_table.get_endpoint(rule.cluster.as_str()) {
         Some(e) => e,
@@ -85,52 +97,109 @@ pub async fn proxy_handler(
     };
 
     // handle req
-    handle_req(&mut req, host.clone(), route_table.clone());
+    handle_req(
+        &mut req,
+        host.clone(),
+        route_table.clone(),
+        cluster_rules.clone(),
+    );
 
     // lease read lock
     drop(route_table);
 
-    if req.version() == Version::HTTP_2 {
-        // todo add h1-ssl,h2,h2-ssl for upstream, while h1
+    match cluster_rules.backend_protocol {
+        BackendProtocol::H2 | BackendProtocol::H2Ssl => {
+            let io = TokioIo::new(stream);
+            let (mut sender, conn) = hyper::client::conn::http2::Builder::new(TokioExecutor::new())
+                .handshake(io)
+                .await?;
 
-        let io = TokioIo::new(stream);
-        let (mut sender, conn) = hyper::client::conn::http1::Builder::new()
-            .preserve_header_case(true)
-            .title_case_headers(false)
-            .handshake(io)
-            .await?;
+            tokio::spawn(async move {
+                if let Err(e) = conn.await {
+                    tracing::error!("upstream h1 connection error: {e}");
+                }
+            });
 
-        tokio::spawn(async move {
-            if let Err(e) = conn.await {
-                tracing::error!("upstream h1 connection error: {e}");
-            }
-        });
+            let mut resp_http2 = match timeout(
+                Duration::from_millis(cluster_rules.timeout_ms as u64),
+                sender.send_request(req),
+            )
+            .await
+            {
+                // Ok
+                Ok(Ok(r)) => r,
 
-        let mut resp = sender.send_request(req).await?;
-        remove_hop_headers(resp.headers_mut());
-        return Ok(resp.map(|b| b.boxed()));
-    } else {
-        let io = TokioIo::new(stream);
-        let (mut sender, conn) = hyper::client::conn::http1::Builder::new()
-            .handshake(io)
-            .await?;
-        tokio::spawn(async move {
-            if let Err(e) = conn.await {
-                tracing::error!("upstream h1 connection error: {e}");
-            }
-        });
+                // upstream err
+                Ok(Err(e)) => return Err(e),
 
-        let mut resp = sender.send_request(req).await?;
+                // timeout occurred
+                Err(_elapsed) => {
+                    return Ok(
+                        text(StatusCode::GATEWAY_TIMEOUT, "upstream request timeout")
+                            .map(|b| b.boxed()),
+                    );
+                }
+            };
 
-        remove_hop_headers(resp.headers_mut());
+            remove_hop_headers(resp_http2.headers_mut());
 
-        return Ok(resp.map(|b| b.boxed()));
+            Ok(resp_http2.map(|b| b.boxed()))
+        }
+
+        BackendProtocol::H1 | BackendProtocol::H1Ssl => {
+            let io = TokioIo::new(stream);
+            let (mut sender, conn) = hyper::client::conn::http1::Builder::new()
+                .handshake(io)
+                .await?;
+            tokio::spawn(async move {
+                if let Err(e) = conn.await {
+                    tracing::error!("upstream h1 connection error: {e}");
+                }
+            });
+
+            let mut resp_http1 = match timeout(
+                Duration::from_millis(cluster_rules.timeout_ms as u64),
+                sender.send_request(req),
+            )
+            .await
+            {
+                // Ok
+                Ok(Ok(r)) => r,
+
+                // upstream err
+                Ok(Err(e)) => return Err(e),
+
+                // timeout occurred
+                Err(_elapsed) => {
+                    return Ok(
+                        text(StatusCode::GATEWAY_TIMEOUT, "upstream request timeout")
+                            .map(|b| b.boxed()),
+                    );
+                }
+            };
+
+            remove_hop_headers(resp_http1.headers_mut());
+
+            Ok(resp_http1.map(|b| b.boxed()))
+        }
     }
 }
 
-fn handle_req(req: &mut Request<Incoming>, host: String, route_table: Arc<RouteTable>) {
+fn handle_req(
+    req: &mut Request<Incoming>,
+    host: String,
+    route_table: Arc<RouteTable>,
+    cluster_rule: Arc<ClusterRule>,
+) {
     let mut parts = req.uri().clone().into_parts();
+
     parts.scheme = Some(http::uri::Scheme::HTTP);
+    if cluster_rule.backend_protocol == BackendProtocol::H2Ssl
+        || cluster_rule.backend_protocol == BackendProtocol::H1Ssl
+    {
+        parts.scheme = Some(http::uri::Scheme::HTTPS);
+    }
+
     remove_hop_headers(req.headers_mut());
 
     // check authority

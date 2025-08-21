@@ -25,6 +25,7 @@ import (
 	"fmt"
 	"slices"
 	"sort"
+	"strconv"
 	"time"
 
 	. "argon.github.io/ingress/internal/grpc"
@@ -106,6 +107,19 @@ func (r *ArgonConfigReconciler) parseEndpoints(ctx context.Context, ingList *net
 
 	for _, ing := range ingList.Items {
 		logger.V(1).Info("processing ingress", "ns", ing.Namespace, "name", ing.Name)
+		annotations := ing.GetAnnotations()
+
+		backendProtocol := "h1"
+		if _, exists := annotations[BACKEND_PROTOCOL_ANNOTATION]; exists {
+			backendProtocol = annotations[BACKEND_PROTOCOL_ANNOTATION]
+		}
+
+		backendTimeout := 3000
+		if _, exists := annotations[BACKEND_TIMEOUT_ANNOTATION]; exists {
+			backendTimeout, _ = strconv.Atoi(annotations[BACKEND_TIMEOUT_ANNOTATION])
+		}
+
+		backendRetries := 1 // todo make retries for backend
 
 		// tls
 		var bundle TLSSecret
@@ -219,10 +233,13 @@ func (r *ArgonConfigReconciler) parseEndpoints(ctx context.Context, ingList *net
 				sort.Strings(allAddrs)
 
 				target.Path[p.Path] = TargetEndpoint{
-					Port:      *chosenPort,
-					Protocol:  proto,
-					Addresses: allAddrs,
-					PathType:  p.PathType,
+					Port:            *chosenPort,
+					Protocol:        proto,
+					Addresses:       allAddrs,
+					PathType:        p.PathType,
+					BackendProtocol: backendProtocol,
+					Retries:         int32(backendRetries),
+					TimeoutMs:       int32(backendTimeout),
 				}
 			}
 
@@ -263,11 +280,12 @@ func (r *ArgonConfigReconciler) ToSnapshot(targets []TargetProxy) Snapshot {
 			})
 
 			cluster := Cluster{
-				Name:      clusterName,
-				LBPolicy:  LBRoundRobin,
-				Endpoints: make([]Endpoint, 0, len(te.Addresses)),
-				TimeoutMs: 5000,
-				Retries:   1,
+				Name:            clusterName,
+				LBPolicy:        LBRoundRobin,
+				Endpoints:       make([]Endpoint, 0, len(te.Addresses)),
+				TimeoutMs:       te.TimeoutMs,
+				Retries:         te.Retries,
+				BackendProtocol: te.BackendProtocol,
 			}
 			for _, a := range te.Addresses {
 				cluster.Endpoints = append(cluster.Endpoints, Endpoint{

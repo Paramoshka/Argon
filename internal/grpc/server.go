@@ -88,7 +88,7 @@ func toPbSnapshot(in Snapshot) *argonpb.Snapshot {
 	for _, c := range in.Clusters {
 		pc := &argonpb.Cluster{
 			Name: c.Name, LbPolicy: string(c.LBPolicy),
-			TimeoutMs: c.TimeoutMs, Retries: c.Retries,
+			TimeoutMs: c.TimeoutMs, Retries: c.Retries, BackendProtocol: c.BackendProtocol,
 		}
 		for _, e := range c.Endpoints {
 			pc.Endpoints = append(pc.Endpoints, &argonpb.Endpoint{

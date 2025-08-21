@@ -91,6 +91,8 @@ metadata:
   name: echo-tls
   annotations:
     kubernetes.io/ingress.class: argon
+    argon.github.io/backend-protocol: h1 # h2 h2-ssl h1-ssl
+    argon.github.io/backend-timeout: "5000" # in milliseconds
 spec:
   ingressClassName: argon
   tls:

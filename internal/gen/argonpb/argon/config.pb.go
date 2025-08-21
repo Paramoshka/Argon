@@ -142,14 +142,15 @@ func (x *Endpoint) GetRegion() string {
 }
 
 type Cluster struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
-	LbPolicy      string                 `protobuf:"bytes,2,opt,name=lb_policy,json=lbPolicy,proto3" json:"lb_policy,omitempty"` // "RoundRobin"...
-	Endpoints     []*Endpoint            `protobuf:"bytes,3,rep,name=endpoints,proto3" json:"endpoints,omitempty"`
-	TimeoutMs     int32                  `protobuf:"varint,4,opt,name=timeout_ms,json=timeoutMs,proto3" json:"timeout_ms,omitempty"`
-	Retries       int32                  `protobuf:"varint,5,opt,name=retries,proto3" json:"retries,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	Name            string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	LbPolicy        string                 `protobuf:"bytes,2,opt,name=lb_policy,json=lbPolicy,proto3" json:"lb_policy,omitempty"` // "RoundRobin"...
+	Endpoints       []*Endpoint            `protobuf:"bytes,3,rep,name=endpoints,proto3" json:"endpoints,omitempty"`
+	TimeoutMs       int32                  `protobuf:"varint,4,opt,name=timeout_ms,json=timeoutMs,proto3" json:"timeout_ms,omitempty"`
+	Retries         int32                  `protobuf:"varint,5,opt,name=retries,proto3" json:"retries,omitempty"`
+	BackendProtocol string                 `protobuf:"bytes,6,opt,name=backend_protocol,json=backendProtocol,proto3" json:"backend_protocol,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *Cluster) Reset() {
@@ -215,6 +216,13 @@ func (x *Cluster) GetRetries() int32 {
 		return x.Retries
 	}
 	return 0
+}
+
+func (x *Cluster) GetBackendProtocol() string {
+	if x != nil {
+		return x.BackendProtocol
+	}
+	return ""
 }
 
 type Route struct {
@@ -489,14 +497,15 @@ const file_argon_config_proto_rawDesc = "" +
 	"\x04port\x18\x02 \x01(\x05R\x04port\x12\x16\n" +
 	"\x06weight\x18\x03 \x01(\x05R\x06weight\x12\x12\n" +
 	"\x04zone\x18\x04 \x01(\tR\x04zone\x12\x16\n" +
-	"\x06region\x18\x05 \x01(\tR\x06region\"\xa9\x01\n" +
+	"\x06region\x18\x05 \x01(\tR\x06region\"\xd4\x01\n" +
 	"\aCluster\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x1b\n" +
 	"\tlb_policy\x18\x02 \x01(\tR\blbPolicy\x124\n" +
 	"\tendpoints\x18\x03 \x03(\v2\x16.argon.config.EndpointR\tendpoints\x12\x1d\n" +
 	"\n" +
 	"timeout_ms\x18\x04 \x01(\x05R\ttimeoutMs\x12\x18\n" +
-	"\aretries\x18\x05 \x01(\x05R\aretries\"\x82\x01\n" +
+	"\aretries\x18\x05 \x01(\x05R\aretries\x12)\n" +
+	"\x10backend_protocol\x18\x06 \x01(\tR\x0fbackendProtocol\"\x82\x01\n" +
 	"\x05Route\x12\x12\n" +
 	"\x04host\x18\x01 \x01(\tR\x04host\x12\x12\n" +
 	"\x04path\x18\x02 \x01(\tR\x04path\x12\x1b\n" +

@@ -18,8 +18,9 @@ pub struct ClusterRule {
     /// "RoundRobin"...
     lb_policy: LBPolicy,
     endpoints: Vec<Endpoint>,
-    timeout_ms: i32,
-    retries: i32,
+    pub timeout_ms: i32,
+    pub retries: i32,
+    pub backend_protocol: BackendProtocol,
     rr_cursor: Arc<AtomicUsize>
 }
 
@@ -43,6 +44,25 @@ impl LBPolicy {
         match s {
             "RoundRobin" => Some(LBPolicy::RoundRobin),
             _ => None,
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum BackendProtocol {
+    H1, H2,
+    H1Ssl,
+    H2Ssl 
+}
+
+impl BackendProtocol {
+    fn parse(s: &str) -> Option<Self> {
+        match s { 
+            "h1" => Some(BackendProtocol::H1),
+            "h2" => Some(BackendProtocol::H2),
+            "h1-ssl" => Some(BackendProtocol::H1Ssl),
+            "h2-ssl" => Some(BackendProtocol::H2Ssl),
+            _ => None
         }
     }
 }
@@ -72,6 +92,8 @@ impl RouteTable {
         // create hashMap clusters
         let mut clusters: HashMap<String, Arc<ClusterRule>> = HashMap::new();
         for cluster in &snapshot.clusters {
+            let bp = BackendProtocol::parse(&cluster.backend_protocol).unwrap_or_else(|| BackendProtocol::H1);
+            
             if let Some(lb) = LBPolicy::parse(&cluster.lb_policy) {
                 clusters.entry(cluster.name.to_ascii_lowercase())
                     .insert_entry(Arc::from(ClusterRule {
@@ -81,6 +103,7 @@ impl RouteTable {
                         timeout_ms: cluster.timeout_ms,
                         retries: cluster.retries,
                         rr_cursor: Arc::new(AtomicUsize::new(0)),
+                        backend_protocol: bp,
                     }));
             }
         }
@@ -160,6 +183,12 @@ impl RouteTable {
             LBPolicy::RoundRobin => self.round_robin(cluster),
             _ => Some(cluster.endpoints.first()?.clone()),
         }
+    }
+    
+    // get cluster rule timeouts, retries etc...
+    pub fn get_cluster_rules(&self, cluster_name: &str) -> Option<Arc<ClusterRule>> {
+        let cluster = self.clusters.get(cluster_name)?;
+        Some(cluster.clone())
     }
 
     // RoundRobin algorithm

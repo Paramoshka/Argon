@@ -31,6 +31,8 @@ pub struct Cluster {
     pub timeout_ms: i32,
     #[prost(int32, tag = "5")]
     pub retries: i32,
+    #[prost(string, tag = "6")]
+    pub backend_protocol: ::prost::alloc::string::String,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct Route {

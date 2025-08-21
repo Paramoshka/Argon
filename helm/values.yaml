@@ -102,7 +102,7 @@ dataplane:
 # ---------------------------
 image:
   repository: paramoshka/argon  # Will be used as <repo>-controller / <repo>-dataplane
-  tag: "latest"
+  tag: ""
   pullPolicy: Always
   # pullPolicy: IfNotPresent
 

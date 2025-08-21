@@ -1,8 +1,8 @@
 # Image URL to use all building/pushing image targets
-ARG ?= latest
+TAG ?= latest
 
-IMG ?= paramoshka/argon-controller:$(ARG)
-IMG_DATAPLANE ?= paramoshka/argon-dataplane:$(ARG)
+IMG ?= paramoshka/argon-controller:$(TAG)
+IMG_DATAPLANE ?= paramoshka/argon-dataplane:$(TAG)
 
 # Get the currently used golang install path (in GOPATH/bin, unless GOBIN is set)
 ifeq (,$(shell go env GOBIN))

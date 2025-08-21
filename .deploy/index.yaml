@@ -3,12 +3,12 @@ entries:
   argon:
   - apiVersion: v2
     appVersion: 0.1.0
-    created: "2025-08-21T18:34:34.437671419+07:00"
+    created: "2025-08-21T18:38:09.700160533+07:00"
     description: A Helm chart for Kubernetes
     digest: 1c82e860a46dfd0287313e5d92f1e112bb6ce8c6f9b2575ea2e4f70d5490d71e
     name: argon
     type: application
     urls:
-    - https://github.com/Paramoshka/Argon/tree/main/.deploy/argon-0.1.0.tgz
+    - https://raw.githubusercontent.com/Paramoshka/Argon/main/.deploy/argon-0.1.0.tgz
     version: 0.1.0
-generated: "2025-08-21T18:34:34.436491911+07:00"
+generated: "2025-08-21T18:38:09.699727218+07:00"

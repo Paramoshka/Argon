@@ -31,6 +31,13 @@
 * Pick an Endpoint via the cluster’s LB policy.
 * Proxy request to address:port.
 
+### Ingress configuration
+
+How to configure Ingress (annotations, timeouts, backend protocols) — see **docs/settings.md**.
+
+👉 [Configuration guide](./docs/settings.md)
+
+
 ---
 ### Status & roadmap
 
@@ -38,9 +45,9 @@
 
 * ✅ Rust data-plane → proxy, health/readiness, RR LB
 
-* ⏳ mTLS between planes
+* ✅ HTTP/2|TLS upstreams, per-route timeouts
 
-* ⏳ HTTP/2 upstreams, retries/backoff, per-route timeouts
+* ⏳ mTLS between planes
 
 * ⏳ Metrics & OpenTelemetry
 

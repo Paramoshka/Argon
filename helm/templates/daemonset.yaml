@@ -64,10 +64,7 @@ spec:
             {{- with .Values.dataplane.extraEnv }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
-          args:
-          {{- if .Values.dataplane.pprofEnabled }}
-            - "--pprof"
-          {{- end }}
+          args: []
           ports:
             - name: http
               containerPort: {{ .Values.dataplane.ports.http | default 8080 }}

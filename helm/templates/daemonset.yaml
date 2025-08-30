@@ -40,10 +40,14 @@ spec:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
       containers:
         - name: dataplane
-          image: "{{ .Values.image.repository }}-dataplane:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          image: "{{ include "argon.dataplaneImage" . }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           securityContext:
-            {{- toYaml .Values.securityContext | nindent 12 }}
+          {{- if .Values.dataplane.pprofEnabled }}
+            runAsUser: 0
+            runAsGroup: 0
+            allowPrivilegeEscalation: false
+          {{- end }}
           env:
             - name: HTTP_PORT
               value: "{{ .Values.dataplane.ports.http | default 8080 }}"
@@ -60,6 +64,10 @@ spec:
             {{- with .Values.dataplane.extraEnv }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
+          args:
+          {{- if .Values.dataplane.pprofEnabled }}
+            - "--pprof"
+          {{- end }}
           ports:
             - name: http
               containerPort: {{ .Values.dataplane.ports.http | default 8080 }}
@@ -82,6 +90,12 @@ spec:
               port: {{ .Values.dataplane.ports.adminport | default 8181 }}
             initialDelaySeconds: 2
             periodSeconds: 5
+          {{- if .Values.dataplane.pprofEnabled }}
+          volumeMounts:
+            - mountPath: /usr/local/pprof
+              name: pprof-dataplane
+              readOnly: false
+          {{- end }}
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
       {{- with .Values.dataplane.topologySpreadConstraints }}
@@ -108,4 +122,11 @@ spec:
       {{- with .Values.tolerations }}
       tolerations:
         {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if .Values.dataplane.pprofEnabled }}
+      volumes:
+        - name: pprof-dataplane
+          hostPath:
+            path: /var/argon/pprof
+            type: "DirectoryOrCreate"
       {{- end }}

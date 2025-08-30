@@ -96,6 +96,10 @@ dataplane:
 
   topologySpreadConstraints: []
   podAntiAffinity: {}
+  pprofEnabled: false # file will be written in /var/argon/pprof directory
+  pprofImage:
+    repository: docker.io/paramoshka/argon-dataplane-perf
+    tag: dev
 
 # ---------------------------
 # Images (shared)

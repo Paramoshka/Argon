@@ -1,9 +1,0 @@
-apiVersion: argon.argon.github.io/v1alpha1
-kind: ArgonConfig
-metadata:
-  labels:
-    app.kubernetes.io/name: argon
-    app.kubernetes.io/managed-by: kustomize
-  name: argonconfig-sample
-spec:
-  # TODO(user): Add fields here

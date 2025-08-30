@@ -88,13 +88,11 @@ spec:
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: echo-tls
+  name: echo-tls-nginx
   annotations:
-    kubernetes.io/ingress.class: argon
-    argon.github.io/backend-protocol: h1 # h2 h2-ssl h1-ssl
-    argon.github.io/backend-timeout: "5000" # in milliseconds
+    kubernetes.io/ingress.class: nginx
 spec:
-  ingressClassName: argon
+  ingressClassName: nginx
   tls:
     - hosts:
         - echo-tls.local

@@ -53,10 +53,26 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{/*
 Create the name of the service account to use
 */}}
-{{- define "helm.serviceAccountName" -}}
+{{ define "helm.serviceAccountName" -}}
 {{- if .Values.serviceAccount.create }}
-{{- default (include "helm.fullname" .) .Values.serviceAccount.name }}
+{{ default (include "helm.fullname" .) .Values.serviceAccount.name }}
 {{- else }}
-{{- default "default" .Values.serviceAccount.name }}
+{{ default "default" .Values.serviceAccount.name }}
 {{- end }}
 {{- end }}
+
+{{/*
+Select dataplane image
+*/}}
+{{ define "argon.dataplaneImage" -}}
+{{ if .Values.dataplane.pprofEnabled -}}
+{{ printf "%s:%s"
+      (default "docker.io/paramoshka/argon-dataplane-perf" .Values.dataplane.pprofImage.repository)
+      (default "dev" .Values.dataplane.pprofImage.tag) }}
+{{ else -}}
+{{ printf "%s-dataplane:%s"
+      .Values.image.repository
+      (default .Chart.AppVersion .Values.image.tag) }}
+{{ end -}}
+{{- end -}}
+

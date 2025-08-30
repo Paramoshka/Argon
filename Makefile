@@ -3,6 +3,7 @@ TAG ?= latest
 
 IMG ?= paramoshka/argon-controller:$(TAG)
 IMG_DATAPLANE ?= paramoshka/argon-dataplane:$(TAG)
+IMG_DATAPLANE_PERF ?= paramoshka/argon-dataplane-perf:$(TAG)
 
 # Get the currently used golang install path (in GOPATH/bin, unless GOBIN is set)
 ifeq (,$(shell go env GOBIN))
@@ -122,11 +123,13 @@ run: manifests generate fmt vet ## Run a controller from your host.
 docker-build: ## Build docker image with the manager.
 	$(CONTAINER_TOOL) build -t ${IMG} . -f build/controller/Dockerfile
 	$(CONTAINER_TOOL) build -t ${IMG_DATAPLANE} . -f build/dataplane/Dockerfile
+	$(CONTAINER_TOOL) build -t ${IMG_DATAPLANE_PERF} . -f build/dataplane-profiler/Dockerfile
 
 .PHONY: docker-push
 docker-push: ## Push docker image with the manager.
 	$(CONTAINER_TOOL) push ${IMG}
 	$(CONTAINER_TOOL) push ${IMG_DATAPLANE}
+	$(CONTAINER_TOOL) push ${IMG_DATAPLANE_PERF}
 
 # PLATFORMS defines the target platforms for the manager image be built to provide support to multiple
 # architectures. (i.e. make docker-buildx IMG=myregistry/mypoperator:0.0.1). To use this option you need to:

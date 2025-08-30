@@ -29,8 +29,9 @@ RUN set -eux; \
   file /workspace/dataplane
 
 # install flamegraff
-RUN cargo install flamegraph
+RUN cargo install flamegraph inferno \
+    && mkdir -p "/usr/local/pprof"
 
-ENTRYPOINT ["/usr/local/cargo/bin/flamegraph"]
+ENTRYPOINT ["perf"]
 
-CMD ["-o", "/usr/local/pprof/flamegraph.svg", "--", "/workspace/dataplane"]
+CMD ["record", "-F", "997", "--call-graph", "dwarf,64000", "-g", "-o", "/usr/local/pprof/perf.data", "--", "/workspace/dataplane"]

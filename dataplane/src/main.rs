@@ -41,119 +41,128 @@ struct AppState {
     sni: Arc<ArcSwap<HashMap<String, Arc<CertifiedKey>>>>,
 }
 
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // env
-    let http_port = std::env::var("HTTP_PORT").unwrap_or_else(|_| "8080".to_string());
-    let https_port = std::env::var("HTTPS_PORT").unwrap_or_else(|_| "8443".to_string());
-    let admin_port = std::env::var("ADMIN_PORT").unwrap_or_else(|_| "8181".to_string());
-    let controller_addr =
-        std::env::var("CONTROLLER_ADDR").unwrap_or_else(|_| "http://127.0.0.1:18000".into());
-    let node_id = std::env::var("NODE_ID").unwrap_or_else(|_| "dp-axum".into());
 
-    // log
-    tracing_subscriber::fmt()
-        .with_env_filter("info,tower_http=info,axum=info,tonic=info")
-        .with_target(false)
-        .compact()
-        .init();
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let thread_count = std::env::var("COUNT_THREADS").unwrap_or_else(|_| num_cpus::get().to_string());
+    let thread_count = thread_count.parse::<usize>().unwrap();
+    tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(thread_count)
+        .enable_all()
+        .build()
+        .unwrap()
+        .block_on(async {
+            // env
+            let http_port = std::env::var("HTTP_PORT").unwrap_or_else(|_| "8080".to_string());
+            let https_port = std::env::var("HTTPS_PORT").unwrap_or_else(|_| "8443".to_string());
+            let admin_port = std::env::var("ADMIN_PORT").unwrap_or_else(|_| "8181".to_string());
+            let controller_addr =
+                std::env::var("CONTROLLER_ADDR").unwrap_or_else(|_| "http://127.0.0.1:18000".into());
+            let node_id = std::env::var("NODE_ID").unwrap_or_else(|_| "dp-axum".into());
 
-    // start not-ready; snap is empty (Default)
-    let state = AppState {
-        ready: Arc::new(RwLock::new(false)),
-        snapshot: Arc::new(RwLock::new(Snapshot::default())),
-        route_table: Arc::new(RwLock::new(Arc::new(RouteTable::default()))),
-        sni: Arc::new(ArcSwap::new(Arc::new(HashMap::new()))),
-    };
+            // log
+            tracing_subscriber::fmt()
+                .with_env_filter("info,tower_http=info,axum=info,tonic=info")
+                .with_target(false)
+                .compact()
+                .init();
 
-    // shutdown token
-    let shutdown = CancellationToken::new();
-    let shutdown_http = shutdown.clone();
-    let shutdown_https = shutdown.clone();
-    let shutdown_select = shutdown.clone();
+            // start not-ready; snap is empty (Default)
+            let state = AppState {
+                ready: Arc::new(RwLock::new(false)),
+                snapshot: Arc::new(RwLock::new(Snapshot::default())),
+                route_table: Arc::new(RwLock::new(Arc::new(RouteTable::default()))),
+                sni: Arc::new(ArcSwap::new(Arc::new(HashMap::new()))),
+            };
 
-    {
-        let shut = shutdown.clone();
-        tokio::spawn(async move {
-            let _ = tokio::signal::ctrl_c().await;
-            shut.cancel();
-        });
-    }
+            // shutdown token
+            let shutdown = CancellationToken::new();
+            let shutdown_http = shutdown.clone();
+            let shutdown_https = shutdown.clone();
+            let shutdown_select = shutdown.clone();
 
-    // Ctrl+C / SIGTERM -> cancel
-    tokio::spawn(async move {
-        let _ = tokio::signal::ctrl_c().await;
-        shutdown.cancel();
-    });
-
-    // gRPC watcher
-    let manager = GrpcManager::start(
-        controller_addr,
-        node_id,
-        state.ready.clone(),
-        state.snapshot.clone(),
-        state.route_table.clone(),
-        state.sni.clone(),
-    );
-
-    // healthcheck
-    let addr = SocketAddr::from((Ipv4Addr::new(0, 0, 0, 0), admin_port.parse::<u16>()?));
-    let admin_listener = TcpListener::bind(addr).await?;
-    let admin_state = state.clone();
-
-    tokio::spawn(async move {
-        loop {
-            match admin_listener.accept().await {
-                Ok((stream_admin, _)) => {
-                    let io_admin = TokioIo::new(stream_admin);
-                    let state_for_conn = admin_state.clone();
-                    let ab = auto::Builder::new(TokioExecutor::new());
-
-                    tokio::spawn(async move {
-                        let svc = service_fn(move |request: Request<Incoming>| {
-                            let ready = state_for_conn.ready.clone();
-                            async move { echo(request, ready).await }
-                        });
-
-                        if let Err(err) = ab.serve_connection(io_admin, svc).await {
-                            tracing::error!("admin serve_connection error: {err}");
-                        }
-                    });
-                }
-                Err(e) => {
-                    tracing::error!("admin accept error: {e}");
-                    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-                }
+            {
+                let shut = shutdown.clone();
+                tokio::spawn(async move {
+                    let _ = tokio::signal::ctrl_c().await;
+                    shut.cancel();
+                });
             }
-        }
-    });
 
-    let http_addr  = SocketAddr::from((Ipv4Addr::UNSPECIFIED, http_port.parse()?));
-    let https_addr = SocketAddr::from((Ipv4Addr::UNSPECIFIED, https_port.parse()?));
+            // Ctrl+C / SIGTERM -> cancel
+            tokio::spawn(async move {
+                let _ = tokio::signal::ctrl_c().await;
+                shutdown.cancel();
+            });
 
-    let dummy_cert = certs::make_dummy_cert()?;
-    let server_cert_resolver: Arc<dyn ResolvesServerCert> =
-        Arc::new(certs::DynResolver::new(dummy_cert, state.sni.clone()));
-    let mut server_config = ServerConfig::builder()
-        .with_no_client_auth()
-        .with_cert_resolver(server_cert_resolver);
-    server_config.alpn_protocols = vec![b"h2".to_vec(), b"http/1.1".to_vec(), b"http/1.0".to_vec()];
+            // gRPC watcher
+            let manager = GrpcManager::start(
+                controller_addr,
+                node_id,
+                state.ready.clone(),
+                state.snapshot.clone(),
+                state.route_table.clone(),
+                state.sni.clone(),
+            );
+
+            // healthcheck
+            let addr = SocketAddr::from((Ipv4Addr::new(0, 0, 0, 0), admin_port.parse::<u16>()?));
+            let admin_listener = TcpListener::bind(addr).await?;
+            let admin_state = state.clone();
+
+            tokio::spawn(async move {
+                loop {
+                    match admin_listener.accept().await {
+                        Ok((stream_admin, _)) => {
+                            let io_admin = TokioIo::new(stream_admin);
+                            let state_for_conn = admin_state.clone();
+                            let ab = auto::Builder::new(TokioExecutor::new());
+
+                            tokio::spawn(async move {
+                                let svc = service_fn(move |request: Request<Incoming>| {
+                                    let ready = state_for_conn.ready.clone();
+                                    async move { echo(request, ready).await }
+                                });
+
+                                if let Err(err) = ab.serve_connection(io_admin, svc).await {
+                                    tracing::error!("admin serve_connection error: {err}");
+                                }
+                            });
+                        }
+                        Err(e) => {
+                            tracing::error!("admin accept error: {e}");
+                            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                        }
+                    }
+                }
+            });
+
+            let http_addr  = SocketAddr::from((Ipv4Addr::UNSPECIFIED, http_port.parse()?));
+            let https_addr = SocketAddr::from((Ipv4Addr::UNSPECIFIED, https_port.parse()?));
+
+            let dummy_cert = certs::make_dummy_cert()?;
+            let server_cert_resolver: Arc<dyn ResolvesServerCert> =
+                Arc::new(certs::DynResolver::new(dummy_cert, state.sni.clone()));
+            let mut server_config = ServerConfig::builder()
+                .with_no_client_auth()
+                .with_cert_resolver(server_cert_resolver);
+            server_config.alpn_protocols = vec![b"h2".to_vec(), b"http/1.1".to_vec(), b"http/1.0".to_vec()];
 
 
-    let http_handle  = tokio::spawn(run_http(http_addr,  state.clone(), shutdown_http.clone()));
-    let https_handle = tokio::spawn(run_https(https_addr, state.clone(), server_config, shutdown_https.clone()));
+            let http_handle  = tokio::spawn(run_http(http_addr,  state.clone(), shutdown_http.clone()));
+            let https_handle = tokio::spawn(run_https(https_addr, state.clone(), server_config, shutdown_https.clone()));
 
 
-    shutdown_select.cancelled().await;
-    tracing::info!("shutdown requested; waiting servers to drain...");
+            shutdown_select.cancelled().await;
+            tracing::info!("shutdown requested; waiting servers to drain...");
 
-    if let Err(e) = http_handle.await { tracing::error!("HTTP task join error: {e:?}"); }
-    if let Err(e) = https_handle.await { tracing::error!("HTTPS task join error: {e:?}"); }
+            if let Err(e) = http_handle.await { tracing::error!("HTTP task join error: {e:?}"); }
+            if let Err(e) = https_handle.await { tracing::error!("HTTPS task join error: {e:?}"); }
 
-    // shutdown gRPC server after http server
-    manager.shutdown().await;
+            // shutdown gRPC server after http server
+            manager.shutdown().await;
 
-    Ok(())
+            Ok(())
+        })
 }
 
 async fn run_http(socket: SocketAddr, state: AppState, shutdown: CancellationToken) -> anyhow::Result<()> {

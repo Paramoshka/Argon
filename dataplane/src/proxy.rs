@@ -104,95 +104,30 @@ pub async fn proxy_handler(
     handle_req(
         &mut req,
         host.clone(),
-        route_table.clone(),
         cluster_rules.clone(),
     );
 
     // lease read lock
     drop(route_table);
 
-    match cluster_rules.backend_protocol {
-        BackendProtocol::H2 | BackendProtocol::H2Ssl => {
-            let io = TokioIo::new(stream);
-            let (mut sender, conn) = hyper::client::conn::http2::Builder::new(TokioExecutor::new())
-                .handshake(io)
-                .await?;
-
-            tokio::spawn(async move {
-                if let Err(e) = conn.await {
-                    tracing::error!("upstream h1 connection error: {e}");
-                }
-            });
-
-            let mut resp_http2 = match timeout(
-                Duration::from_millis(cluster_rules.timeout_ms as u64),
-                sender.send_request(req),
-            )
-            .await
-            {
-                // Ok
-                Ok(Ok(r)) => r,
-
-                // upstream err
-                Ok(Err(e)) => return Err(e),
-
-                // timeout occurred
-                Err(_elapsed) => {
-                    return Ok(
-                        text(StatusCode::GATEWAY_TIMEOUT, "upstream request timeout")
-                            .map(|b| b.boxed()),
-                    );
-                }
-            };
-
-            remove_hop_headers(resp_http2.headers_mut());
-
-            Ok(resp_http2.map(|b| b.boxed()))
+    let pool = state.client_pool.load();
+    let req = pool.connector.request(req.map(|b| b.boxed())).await;
+    
+    let mut resp = match req { 
+        Ok(r) => r,
+        Err(e) => {
+            return Ok(text(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()));
         }
+    };
+    
+    remove_hop_headers(resp.headers_mut());
 
-        BackendProtocol::H1 | BackendProtocol::H1Ssl => {
-            let io = TokioIo::new(stream);
-            let (mut sender, conn) = hyper::client::conn::http1::Builder::new()
-                .handshake(io)
-                .await?;
-            tokio::spawn(async move {
-                if let Err(e) = conn.await {
-                    tracing::error!("upstream h1 connection error: {e}");
-                }
-            });
-
-            let mut resp_http1 = match timeout(
-                Duration::from_millis(cluster_rules.timeout_ms as u64),
-                sender.send_request(req),
-            )
-            .await
-            {
-                // Ok
-                Ok(Ok(r)) => r,
-
-                // upstream err
-                Ok(Err(e)) => return Err(e),
-
-                // timeout occurred
-                Err(_elapsed) => {
-                    return Ok(
-                        text(StatusCode::GATEWAY_TIMEOUT, "upstream request timeout")
-                            .map(|b| b.boxed()),
-                    );
-                }
-            };
-
-            remove_hop_headers(resp_http1.headers_mut());
-
-            Ok(resp_http1.map(|b| b.boxed()))
-        }
-    }
+    Ok(resp.map(|b| b.boxed()))
 }
 
 fn handle_req(
     req: &mut Request<Incoming>,
     host: String,
-    route_table: Arc<RouteTable>,
     cluster_rule: Arc<ClusterRule>,
 ) {
     let mut parts = req.uri().clone().into_parts();
@@ -204,17 +139,22 @@ fn handle_req(
         parts.scheme = Some(http::uri::Scheme::HTTPS);
     }
 
+    match cluster_rule.backend_protocol {
+        BackendProtocol::H2 | BackendProtocol::H2Ssl => {
+            *req.version_mut() = Version::HTTP_2;
+        }
+        _ => {
+            *req.version_mut() = Version::HTTP_11; // default H1
+        }
+    }
+
     remove_hop_headers(req.headers_mut());
 
     // check authority
     if parts.authority.is_none() {
         parts.authority = Some(Authority::from_str(host.as_str()).expect("invalid authority"));
     }
-
-    // check host if to h1
-    // if req.version() == Version::HTTP_2 {
-    //     *req.version_mut() = Version::HTTP_11;
-    // }
+    
 
     if !req.headers().contains_key(header::HOST) {
         req.headers_mut().insert(

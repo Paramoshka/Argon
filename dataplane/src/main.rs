@@ -3,6 +3,7 @@ mod grpc;
 mod proxy;
 mod snapshot;
 mod utils;
+mod client_pool;
 
 use std::collections::HashMap;
 use bytes::Bytes;
@@ -32,9 +33,11 @@ mod argon_config {
 use crate::grpc::GrpcManager;
 use crate::proxy::proxy_handler;
 use argon_config::Snapshot;
+use crate::client_pool::ClientPool;
 
 #[derive(Clone, Default)]
 struct AppState {
+    client_pool: Arc<ArcSwap<ClientPool>>,
     ready: Arc<RwLock<bool>>,
     snapshot: Arc<RwLock<Snapshot>>,
     route_table: Arc<RwLock<Arc<RouteTable>>>,
@@ -72,6 +75,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 snapshot: Arc::new(RwLock::new(Snapshot::default())),
                 route_table: Arc::new(RwLock::new(Arc::new(RouteTable::default()))),
                 sni: Arc::new(ArcSwap::new(Arc::new(HashMap::new()))),
+                client_pool: Arc::new(ArcSwap::new(Arc::new(ClientPool::default())))
             };
 
             // shutdown token

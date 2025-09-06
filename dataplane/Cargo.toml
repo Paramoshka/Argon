@@ -26,6 +26,7 @@ anyhow = "1.0.98"
 arc-swap = "1.7.1"
 rustls-pemfile = { version = "2.2.0"}
 num_cpus = "1.17.0"
+hyper-rustls = {version = "0.27.7", features = ["http2"]}
 # prost-types = "0.13"
 
 [build-dependencies]

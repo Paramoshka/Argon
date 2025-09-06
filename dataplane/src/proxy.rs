@@ -21,16 +21,21 @@ use http_body_util::{Full};
 pub struct Proxy;
 
 // hop-by-hop headers that cannot be proxied (RFC 7230)
-static HOP_HEADERS: &[HeaderName] = &[
-    header::CONNECTION,
-    header::PROXY_AUTHENTICATE,
-    header::PROXY_AUTHORIZATION,
-    header::TE,
-    header::TRAILER,
-    header::TRANSFER_ENCODING,
-    header::UPGRADE,
-    HeaderName::from_static("proxy-connection"),
-    HeaderName::from_static("keep-alive"),
+
+
+static PROXY_CONNECTION: HeaderName = HeaderName::from_static("proxy-connection");
+static KEEP_ALIVE: HeaderName      = HeaderName::from_static("keep-alive");
+
+static HOP_HEADERS_REF: &[&HeaderName] = &[
+    &header::CONNECTION,
+    &header::PROXY_AUTHENTICATE,
+    &header::PROXY_AUTHORIZATION,
+    &header::TE,
+    &header::TRAILER,
+    &header::TRANSFER_ENCODING,
+    &header::UPGRADE,
+    &PROXY_CONNECTION,
+    &KEEP_ALIVE,
 ];
 
 pub async fn proxy_handler(
@@ -88,163 +93,111 @@ pub async fn proxy_handler(
         }
     };
 
-    let addr = format!("{}:{}", ep.address, ep.port);
-    let stream = match TcpStream::connect(&addr).await {
-        Ok(s) => s,
-        Err(e) => {
-            tracing::error!(%addr, error=%e, "connect failed");
-            return Ok(text(
-                StatusCode::BAD_GATEWAY,
-                format!("connect to {addr} failed"),
-            ));
-        }
-    };
+    // let addr = format!("{}:{}", ep.address, ep.port);
 
     // handle req
-    handle_req(
+    handle_req_upstream(
         &mut req,
-        host.clone(),
-        route_table.clone(),
-        cluster_rules.clone(),
+        &host,
+        &ep.address,
+        ep.port as u16,
+        cluster_rules.backend_protocol.clone(),
     );
 
     // lease read lock
     drop(route_table);
 
-    match cluster_rules.backend_protocol {
-        BackendProtocol::H2 | BackendProtocol::H2Ssl => {
-            let io = TokioIo::new(stream);
-            let (mut sender, conn) = hyper::client::conn::http2::Builder::new(TokioExecutor::new())
-                .handshake(io)
-                .await?;
-
-            tokio::spawn(async move {
-                if let Err(e) = conn.await {
-                    tracing::error!("upstream h1 connection error: {e}");
-                }
-            });
-
-            let mut resp_http2 = match timeout(
-                Duration::from_millis(cluster_rules.timeout_ms as u64),
-                sender.send_request(req),
-            )
-            .await
-            {
-                // Ok
-                Ok(Ok(r)) => r,
-
-                // upstream err
-                Ok(Err(e)) => return Err(e),
-
-                // timeout occurred
-                Err(_elapsed) => {
-                    return Ok(
-                        text(StatusCode::GATEWAY_TIMEOUT, "upstream request timeout")
-                            .map(|b| b.boxed()),
-                    );
-                }
-            };
-
-            remove_hop_headers(resp_http2.headers_mut());
-
-            Ok(resp_http2.map(|b| b.boxed()))
+    let pool = state.client_pool.load();
+    let req = pool.connector.request(req.map(|b| b.boxed())).await;
+    // tracing::info!("proxy request: {:?}", req);
+    
+    let mut resp = match req { 
+        Ok(r) => r,
+        Err(e) => {
+           //  tracing::error!("failed to connect to client: {:?}", e); // debug
+            return Ok(text(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()));
         }
+    };
+    
+    remove_hop_headers(resp.headers_mut());
 
-        BackendProtocol::H1 | BackendProtocol::H1Ssl => {
-            let io = TokioIo::new(stream);
-            let (mut sender, conn) = hyper::client::conn::http1::Builder::new()
-                .handshake(io)
-                .await?;
-            tokio::spawn(async move {
-                if let Err(e) = conn.await {
-                    tracing::error!("upstream h1 connection error: {e}");
-                }
-            });
-
-            let mut resp_http1 = match timeout(
-                Duration::from_millis(cluster_rules.timeout_ms as u64),
-                sender.send_request(req),
-            )
-            .await
-            {
-                // Ok
-                Ok(Ok(r)) => r,
-
-                // upstream err
-                Ok(Err(e)) => return Err(e),
-
-                // timeout occurred
-                Err(_elapsed) => {
-                    return Ok(
-                        text(StatusCode::GATEWAY_TIMEOUT, "upstream request timeout")
-                            .map(|b| b.boxed()),
-                    );
-                }
-            };
-
-            remove_hop_headers(resp_http1.headers_mut());
-
-            Ok(resp_http1.map(|b| b.boxed()))
-        }
-    }
+    Ok(resp.map(|b| b.boxed()))
 }
 
-fn handle_req(
+fn handle_req_upstream(
     req: &mut Request<Incoming>,
-    host: String,
-    route_table: Arc<RouteTable>,
-    cluster_rule: Arc<ClusterRule>,
+    original_host: &str,
+    upstream_host: &str,
+    upstream_port: u16,
+    proto: BackendProtocol,
 ) {
     let mut parts = req.uri().clone().into_parts();
 
-    parts.scheme = Some(http::uri::Scheme::HTTP);
-    if cluster_rule.backend_protocol == BackendProtocol::H2Ssl
-        || cluster_rule.backend_protocol == BackendProtocol::H1Ssl
-    {
-        parts.scheme = Some(http::uri::Scheme::HTTPS);
+    let is_tls = matches!(proto, BackendProtocol::H1Ssl | BackendProtocol::H2Ssl);
+    parts.scheme = Some(if is_tls { http::uri::Scheme::HTTPS } else { http::uri::Scheme::HTTP });
+
+    match proto {
+        BackendProtocol::H2 | BackendProtocol::H2Ssl => *req.version_mut() = Version::HTTP_2,
+        _ => *req.version_mut() = Version::HTTP_11,
     }
 
     remove_hop_headers(req.headers_mut());
 
-    // check authority
-    if parts.authority.is_none() {
-        parts.authority = Some(Authority::from_str(host.as_str()).expect("invalid authority"));
-    }
-
-    // check host if to h1
-    // if req.version() == Version::HTTP_2 {
-    //     *req.version_mut() = Version::HTTP_11;
-    // }
-
-    if !req.headers().contains_key(header::HOST) {
-        req.headers_mut().insert(
-            header::HOST,
-            HeaderValue::from_str(host.as_str()).expect("host is not a valid header value"),
-        );
+    let default_port = if is_tls { 443 } else { 80 };
+    let auth = if upstream_port == default_port {
+        Authority::from_str(upstream_host)
+    } else {
+        Authority::from_str(&format!("{upstream_host}:{upstream_port}"))
+    };
+    if let Ok(a) = auth {
+        parts.authority = Some(a);
     }
 
     if parts.path_and_query.is_none() {
         parts.path_and_query = Some(PathAndQuery::from_static("/"));
     }
 
-    let new_uri = Uri::from_parts(parts).expect("valid URI");
-    *req.uri_mut() = new_uri;
+    if let Ok(hv) = HeaderValue::from_str(original_host) {
+        req.headers_mut().insert(header::HOST, hv);
+    }
+
+    add_forward_headers(req.headers_mut(), is_tls, original_host);
+
+    if let Ok(new_uri) = Uri::from_parts(parts) {
+        *req.uri_mut() = new_uri;
+    }
 }
 
-fn text(status: StatusCode, s: impl Into<String>) -> Response<BoxBody<Bytes, hyper::Error>> {
+
+fn text(status: StatusCode, s: impl Into<String>) -> http::Response<BoxBody<Bytes, hyper::Error>> {
     let body: BoxBody<Bytes, hyper::Error> = Full::new(Bytes::from(s.into()))
-        .map_err(|| std::io::Error::new(std::io::ErrorKind::Other, status))
+        .map_err(|never: Infallible| match never {})
         .boxed();
 
-    Response::builder()
+    http::Response::builder()
         .status(status)
         .header(header::CONTENT_TYPE, "text/plain; charset=utf-8")
         .body(body)
-        .unwrap()
+        .expect("failed to build response")
 }
 
 fn remove_hop_headers(headers: &mut HeaderMap) {
-    for header in HOP_HEADERS {
-        headers.remove(header);
+    for header in HOP_HEADERS_REF {
+        headers.remove(*header);
+    }
+}
+
+fn add_forward_headers(h: &mut http::HeaderMap, is_tls: bool, original_host: &str) {
+
+    let proto = if is_tls { "https" } else { "http" };
+    let _ = h.insert(
+        HeaderName::from_static("x-forwarded-proto"),
+        HeaderValue::from_static(proto),
+    );
+
+    if !h.contains_key(HeaderName::from_static("x-forwarded-host")) {
+        if let Ok(v) = HeaderValue::from_str(original_host) {
+            let _ = h.insert(HeaderName::from_static("x-forwarded-host"), v);
+        }
     }
 }

@@ -3,6 +3,7 @@ mod grpc;
 mod proxy;
 mod snapshot;
 mod utils;
+mod client_pool;
 
 use std::collections::HashMap;
 use bytes::Bytes;
@@ -32,9 +33,11 @@ mod argon_config {
 use crate::grpc::GrpcManager;
 use crate::proxy::proxy_handler;
 use argon_config::Snapshot;
+use crate::client_pool::ClientPool;
 
 #[derive(Clone, Default)]
 struct AppState {
+    pool_client: ClientPool,
     ready: Arc<RwLock<bool>>,
     snapshot: Arc<RwLock<Snapshot>>,
     route_table: Arc<RwLock<Arc<RouteTable>>>,

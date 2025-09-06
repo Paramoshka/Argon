@@ -15,6 +15,8 @@ use std::time::Duration;
 use tokio::net::TcpStream;
 use tokio::time::timeout;
 use tokio_util::future::FutureExt;
+use std::convert::Infallible;
+use http_body_util::{Full};
 
 pub struct Proxy;
 
@@ -27,6 +29,8 @@ static HOP_HEADERS: &[HeaderName] = &[
     header::TRAILER,
     header::TRANSFER_ENCODING,
     header::UPGRADE,
+    HeaderName::from_static("proxy-connection"),
+    HeaderName::from_static("keep-alive"),
 ];
 
 pub async fn proxy_handler(
@@ -227,17 +231,20 @@ fn handle_req(
     *req.uri_mut() = new_uri;
 }
 
-// todo need add text
 fn text(status: StatusCode, s: impl Into<String>) -> Response<BoxBody<Bytes, hyper::Error>> {
+    let body: BoxBody<Bytes, hyper::Error> = Full::new(Bytes::from(s.into()))
+        .map_err(|| std::io::Error::new(std::io::ErrorKind::Other, status))
+        .boxed();
+
     Response::builder()
         .status(status)
-        .header("content-type", "text/plain; charset=utf-8")
-        .body(utils::empty())
+        .header(header::CONTENT_TYPE, "text/plain; charset=utf-8")
+        .body(body)
         .unwrap()
 }
 
 fn remove_hop_headers(headers: &mut HeaderMap) {
-    for header in &*HOP_HEADERS {
+    for header in HOP_HEADERS {
         headers.remove(header);
     }
 }

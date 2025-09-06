@@ -44,7 +44,7 @@ struct AppState {
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let thread_count = std::env::var("COUNT_THREADS").unwrap_or_else(|_| num_cpus::get().to_string());
-    let thread_count = thread_count.parse::<usize>().unwrap();
+    let thread_count = thread_count.parse::<usize>().unwrap_or_else(|_| 1);
     tokio::runtime::Builder::new_multi_thread()
         .worker_threads(thread_count)
         .enable_all()
@@ -79,14 +79,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let shutdown_http = shutdown.clone();
             let shutdown_https = shutdown.clone();
             let shutdown_select = shutdown.clone();
-
-            {
-                let shut = shutdown.clone();
-                tokio::spawn(async move {
-                    let _ = tokio::signal::ctrl_c().await;
-                    shut.cancel();
-                });
-            }
 
             // Ctrl+C / SIGTERM -> cancel
             tokio::spawn(async move {

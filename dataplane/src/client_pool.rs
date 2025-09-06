@@ -1,14 +1,15 @@
-use std::time::Duration;
 use bytes::Bytes;
 use http_body_util::combinators::BoxBody;
 use hyper_rustls::{HttpsConnector, HttpsConnectorBuilder};
 use hyper_util::client::legacy::Client;
 use hyper_util::client::legacy::connect::HttpConnector;
 use hyper_util::rt::{TokioExecutor, TokioTimer};
+use std::time::Duration;
 use tokio;
 
+#[derive(Clone, Debug)]
 pub struct ClientPool {
-    pub connector: Client<HttpsConnector<HttpConnector>, BoxBody<Bytes, hyper::Error>>
+    pub connector: Client<HttpsConnector<HttpConnector>, BoxBody<Bytes, hyper::Error>>,
 }
 
 impl ClientPool {
@@ -28,7 +29,13 @@ impl ClientPool {
             .pool_max_idle_per_host(1024)
             .http2_only(true)
             .build(https);
-        
+
         ClientPool { connector }
+    }
+}
+
+impl Default for ClientPool {
+    fn default() -> Self {
+        Self::new_http_pool_connector()
     }
 }

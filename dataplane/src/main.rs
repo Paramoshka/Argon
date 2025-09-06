@@ -37,7 +37,7 @@ use crate::client_pool::ClientPool;
 
 #[derive(Clone, Default)]
 struct AppState {
-    pool_client: ClientPool,
+    client_pool: Arc<ArcSwap<ClientPool>>,
     ready: Arc<RwLock<bool>>,
     snapshot: Arc<RwLock<Snapshot>>,
     route_table: Arc<RwLock<Arc<RouteTable>>>,
@@ -75,6 +75,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 snapshot: Arc::new(RwLock::new(Snapshot::default())),
                 route_table: Arc::new(RwLock::new(Arc::new(RouteTable::default()))),
                 sni: Arc::new(ArcSwap::new(Arc::new(HashMap::new()))),
+                client_pool: Arc::new(ArcSwap::new(Arc::new(ClientPool::default())))
             };
 
             // shutdown token

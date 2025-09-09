@@ -75,7 +75,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 snapshot: Arc::new(RwLock::new(Snapshot::default())),
                 route_table: Arc::new(RwLock::new(Arc::new(RouteTable::default()))),
                 sni: Arc::new(ArcSwap::new(Arc::new(HashMap::new()))),
-                client_pool: Arc::new(ArcSwap::new(Arc::new(ClientPool::default())))
+                client_pool: Arc::new(ArcSwap::new(Arc::new(ClientPool::new_http_pool_connector(thread_count))))
             };
 
             // shutdown token

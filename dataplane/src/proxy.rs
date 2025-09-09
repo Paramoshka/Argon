@@ -1,19 +1,13 @@
 use crate::AppState;
-use crate::snapshot::{BackendProtocol, ClusterRule, RouteTable};
-use crate::utils;
+use crate::snapshot::{BackendProtocol};
 use bytes::Bytes;
 use http::uri::{Authority, PathAndQuery};
 use http::{HeaderMap, HeaderName, HeaderValue, StatusCode, Uri, Version, header};
 use http_body_util::{BodyExt, combinators::BoxBody};
 use hyper::body::Incoming;
 use hyper::{Request, Response};
-use hyper_util::rt::{TokioExecutor, TokioIo, TokioTimer};
-use std::arch::x86_64::_mm256_hsub_epi16;
 use std::str::FromStr;
-use std::sync::Arc;
 use std::time::Duration;
-use tokio::net::TcpStream;
-use tokio::time::timeout;
 use tokio_util::future::FutureExt;
 use std::convert::Infallible;
 use http_body_util::{Full};
@@ -93,8 +87,6 @@ pub async fn proxy_handler(
         }
     };
 
-    // let addr = format!("{}:{}", ep.address, ep.port);
-
     // handle req
     handle_req_upstream(
         &mut req,
@@ -106,16 +98,19 @@ pub async fn proxy_handler(
 
     // lease read lock
     drop(route_table);
-
+    
+    let addr = format!("{}:{}", ep.address, ep.port);
     let pool = state.client_pool.load();
-    let req = pool.connector.request(req.map(|b| b.boxed())).await;
-    // tracing::info!("proxy request: {:?}", req);
+    let timeout = Duration::from_millis(cluster_rules.timeout_ms as u64);
+    let Ok(req) = pool.connector.request(req.map(|b| b.boxed())).timeout(timeout).await else { 
+        let err_text = format!("Upstream connector timed out: {:?}", addr);
+        return Ok(text(StatusCode::BAD_GATEWAY, err_text));
+    };
     
     let mut resp = match req { 
-        Ok(r) => r,
+        Ok(resp) => resp,
         Err(e) => {
-           //  tracing::error!("failed to connect to client: {:?}", e); // debug
-            return Ok(text(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()));
+            return Ok(text(StatusCode::BAD_GATEWAY, e.to_string()));
         }
     };
     

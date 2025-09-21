@@ -68,6 +68,7 @@ func main() {
 	var tlsOpts []func(*tls.Config)
 	var ingressClass string
 	var configMapName string
+	var grpcServerName string
 	flag.StringVar(&metricsAddr, "metrics-bind-address", "0", "The address the metrics endpoint binds to. "+
 		"Use :8443 for HTTPS or :8080 for HTTP, or leave as 0 to disable the metrics service.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
@@ -87,6 +88,7 @@ func main() {
 		"If set, HTTP/2 will be enabled for the metrics and webhook servers")
 	flag.StringVar(&ingressClass, "ingress-class", "argon", "The name ingress class used for the ingress controller.")
 	flag.StringVar(&configMapName, "config", "", "The name of the configmap used for the ingress controller.")
+	flag.StringVar(&grpcServerName, "grpc-server-name", "argon", "The name of the grpc server used for the ingress controller.")
 	opts := zap.Options{
 		Development: true,
 	}

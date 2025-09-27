@@ -53,6 +53,7 @@ spec:
             - "--leader-elect"
             - "--grpc-server-name={{ include "helm.fullname" . }}-controller.{{ .Release.Namespace }}"
             - "--health-probe-bind-address=:{{ .Values.controller.ports.healthz | default 8081 }}"
+            - "--namespace={{ .Release.Namespace }}"
             {{- if .Values.config.enabled }}
             - "--config={{ default (printf "%s-config" (include "helm.fullname" .)) .Values.config.name }}"
             {{- end }}

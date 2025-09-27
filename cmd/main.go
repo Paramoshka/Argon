@@ -69,6 +69,7 @@ func main() {
 	var ingressClass string
 	var configMapName string
 	var grpcServerName string
+	var namespaceName string
 	flag.StringVar(&metricsAddr, "metrics-bind-address", "0", "The address the metrics endpoint binds to. "+
 		"Use :8443 for HTTPS or :8080 for HTTP, or leave as 0 to disable the metrics service.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
@@ -89,6 +90,7 @@ func main() {
 	flag.StringVar(&ingressClass, "ingress-class", "argon", "The name ingress class used for the ingress controller.")
 	flag.StringVar(&configMapName, "config", "", "The name of the configmap used for the ingress controller.")
 	flag.StringVar(&grpcServerName, "grpc-server-name", "argon", "The name of the grpc server used for the ingress controller.")
+	flag.StringVar(&namespaceName, "namespace", "argon", "The namespace used for the ingress controller.")
 	opts := zap.Options{
 		Development: true,
 	}
@@ -226,6 +228,12 @@ func main() {
 	if err != nil {
 		setupLog.Error(err, "unable to create grpc server")
 	}
+
+	// The CertController receives the certificate bundle created by the grpc server and create Secret for mounting for Dataplane.
+	if err := controller.SetupCertController(mgr, grpcServer.Bundle, namespaceName); err != nil {
+		setupLog.Error(err, "unable to setup certificate controller")
+	}
+
 	if err := mgr.Add(manager.RunnableFunc(func(ctx context.Context) error {
 		// only the leader should listen
 		// (controller-runtime already ensures that the controller and this runnable live on the leader,

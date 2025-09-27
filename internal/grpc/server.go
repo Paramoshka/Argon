@@ -9,14 +9,48 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/keepalive"
 	"sigs.k8s.io/controller-runtime/pkg/log"
+	"crypto/tls"
+	"crypto/x509"
+	"google.golang.org/grpc/credentials"
 )
 
 type Server struct {
 	argonpb.UnimplementedConfigDiscoveryServer
-	Hub *StreamHub
+	Hub       *StreamHub
+	addr      string
+	Bundle    *Bundle
+	tlsConfig *tls.Config
 }
 
-func NewServer(h *StreamHub) *Server { return &Server{Hub: h} }
+func NewServer(h *StreamHub, addr, commonName string) (*Server, error) {
+	bundle, err := NewGRPCServerCerts(commonName, []string{commonName}, []net.IP{net.ParseIP("127.0.0.1")})
+	if err != nil {
+		panic(err)
+	}
+
+	cert, err := tls.X509KeyPair(bundle.ServerCertPEM, bundle.ServerKeyPEM)
+	if err != nil {
+		return nil, err
+	}
+
+	clientCAPool := x509.NewCertPool()
+	clientCAPool.AppendCertsFromPEM(bundle.CACertPEM)
+
+	tlsCfg := &tls.Config{
+		Certificates: []tls.Certificate{cert},
+		MinVersion:   tls.VersionTLS12,
+	}
+
+	tlsCfg.ClientCAs = clientCAPool
+	tlsCfg.ClientAuth = tls.RequireAndVerifyClientCert
+
+	return &Server{
+		Hub:       h,
+		addr:      addr,
+		Bundle:    bundle,
+		tlsConfig: tlsCfg,
+	}, nil
+}
 
 func (s *Server) Watch(req *argonpb.WatchRequest, stream argonpb.ConfigDiscovery_WatchServer) error {
 	id, ch, last := s.Hub.Add()
@@ -41,8 +75,9 @@ func (s *Server) Watch(req *argonpb.WatchRequest, stream argonpb.ConfigDiscovery
 	}
 }
 
-func RunGRPC(ctx context.Context, addr string, hub *StreamHub) error {
-	lis, err := net.Listen("tcp", addr)
+func (s *Server) RunGRPC(ctx context.Context) error {
+
+	lis, err := net.Listen("tcp", s.addr)
 	if err != nil {
 		return err
 	}
@@ -52,15 +87,16 @@ func RunGRPC(ctx context.Context, addr string, hub *StreamHub) error {
 		Timeout: 10_000_000_000, // 10s
 	}
 
-	s := grpc.NewServer(grpc.KeepaliveParams(ka))
-	argonpb.RegisterConfigDiscoveryServer(s, NewServer(hub))
+	creds := grpc.Creds(credentials.NewTLS(s.tlsConfig))
+	server := grpc.NewServer(creds, grpc.KeepaliveParams(ka))
+	argonpb.RegisterConfigDiscoveryServer(server, s)
 
 	go func() {
 		<-ctx.Done()
-		s.GracefulStop()
+		server.GracefulStop()
 	}()
 
-	return s.Serve(lis)
+	return server.Serve(lis)
 }
 
 // ===== model -> pb =====

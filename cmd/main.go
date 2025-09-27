@@ -222,11 +222,15 @@ func main() {
 	}
 
 	grpcAddr := ":18000"
+	grpcServer, err := grpc.NewServer(hub, grpcAddr, grpcServerName)
+	if err != nil {
+		setupLog.Error(err, "unable to create grpc server")
+	}
 	if err := mgr.Add(manager.RunnableFunc(func(ctx context.Context) error {
 		// only the leader should listen
 		// (controller-runtime already ensures that the controller and this runnable live on the leader,
 		// if the LeaderElection is set)
-		return grpc.RunGRPC(ctx, grpcAddr, hub)
+		return grpcServer.RunGRPC(ctx)
 	})); err != nil {
 		setupLog.Error(err, "unable to register grpc controller", "controller", "ArgonConfig")
 		os.Exit(1)

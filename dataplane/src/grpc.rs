@@ -67,7 +67,7 @@ impl GrpcManager {
 
                 // Result<Channel, String>
                 let connect_fut = async {
-                    
+                    // TODO need tls config
                     let endpoint = Channel::from_shared(controller_addr.clone())
                         .map_err(|e| format!("invalid addr: {e}"))?;
 

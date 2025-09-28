@@ -61,7 +61,7 @@ spec:
             - name: ADMIN_PORT
               value: "{{ .Values.dataplane.ports.adminport | default 8181 }}"
             - name: CONTROLLER_ADDR
-              value: "http://{{ include "helm.fullname" . }}-controller:{{ .Values.controller.ports.grpc | default 18000 }}"
+              value: "https://{{ include "helm.fullname" . }}-controller:{{ .Values.controller.ports.grpc | default 18000 }}"
             - name: NODE_ID
               valueFrom:
                 fieldRef:

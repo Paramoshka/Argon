@@ -1,10 +1,13 @@
+use arc_swap::ArcSwap;
+use prost::Message;
+use rcgen::KeyIdMethod::Sha256;
+use rustls::sign::CertifiedKey;
 use std::collections::HashMap;
+use std::hash::{Hash, Hasher};
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
-use arc_swap::ArcSwap;
-use rustls::sign::CertifiedKey;
-use tokio::io::AsyncWriteExt;
-use tokio::sync::RwLock;
+use tokio::sync::{Notify, RwLock};
 use tokio::time::{sleep, timeout};
 use tokio_util::sync::CancellationToken;
 use tonic::transport::Channel;
@@ -20,6 +23,8 @@ use crate::argon_config::{
 use crate::certs;
 use crate::snapshot::RouteTable;
 
+const CERT_CA_NAME: &str = "ca.pem";
+
 pub struct GrpcManager {
     cancel: CancellationToken,
     handle: tokio::task::JoinHandle<()>,
@@ -27,6 +32,8 @@ pub struct GrpcManager {
     snapshot: Arc<RwLock<Snapshot>>,
     route_table: Arc<RwLock<Arc<RouteTable>>>,
     sni: Arc<ArcSwap<HashMap<String, Arc<CertifiedKey>>>>,
+    ca_updated: Arc<Notify>,
+    ca_pem: Arc<ArcSwap<Vec<u8>>>,
 }
 
 impl GrpcManager {
@@ -45,7 +52,9 @@ impl GrpcManager {
         let snapshot_for_task = snapshot.clone();
         let route_table_for_task = route_table.clone();
         let sni_for_task = sni.clone();
-
+        let ca_updated = Arc::new(Notify::new());
+        let ca_pem: Arc<ArcSwap<Vec<u8>>> =
+            Arc::new(ArcSwap::from_pointee(Vec::new()));
         let handle = tokio::spawn(async move {
             let mut backoff_ms: u64 = 500;
             let backoff_max: u64 = 10_000;
@@ -56,10 +65,12 @@ impl GrpcManager {
                     break;
                 }
 
-                // отдельный async-блок, возвращающий Result<Channel, String>
+                // Result<Channel, String>
                 let connect_fut = async {
+                    
                     let endpoint = Channel::from_shared(controller_addr.clone())
                         .map_err(|e| format!("invalid addr: {e}"))?;
+
                     let ch = endpoint
                         .connect()
                         .await
@@ -117,59 +128,67 @@ impl GrpcManager {
 
                 // read stream Snapshots
                 loop {
-                    if cancel_child.is_cancelled() {
-                        info!("gRPC manager: cancellation while streaming");
-                        return;
-                    }
-
-                    match stream.message().await {
-                        Ok(Some(snap)) => {
-                            // update shared snapshot
-                            {
-                                let mut slot = snapshot_for_task.write().await;
-                                *slot = snap.clone();
-                            }
-
-                            // update route_table
-                            let build_route_table = RouteTable::new(&snap);
-                            {
-                                let mut write_route_table = route_table_for_task.write().await;
-                                *write_route_table = Arc::new(build_route_table);
-                            }
-
-                            // update TLS list
-                            let certs = certs::certificates_from_snap(&snap);
-                            sni_for_task.store(Arc::new(certs));
-
-                            if !got_first {
-                                got_first = true;
-                                info!(
-                                    "received first snapshot: version={}, routes={}, clusters={}",
-                                    snap.version,
-                                    snap.routes.len(),
-                                    snap.clusters.len()
-                                );
-                            } else {
-                                info!(
-                                    "snapshot update: version={}, routes={}, clusters={}",
-                                    snap.version,
-                                    snap.routes.len(),
-                                    snap.clusters.len()
-                                );
-                            }
+                    tokio::select! {
+                        _ = cancel_child.cancelled() => {
+                            info!("gRPC manager: cancellation while streaming");
+                            return;
                         }
-                        Ok(None) => {
-                            warn!("gRPC stream closed by server");
-                            break; // переподключение
+                        _ = cancel_child.cancelled() => {
+                            info!("CA updated — forcing reconnect to apply new TLS");
+                            break;
                         }
-                        Err(status) => {
-                            warn!("gRPC stream error: {}", status);
-                            break; // переподключение
+
+                        msg = stream.message() => {
+                            match msg {
+                                Ok(Some(snap)) => {
+                                    // update shared snapshot
+                                    {
+                                        let mut slot = snapshot_for_task.write().await;
+                                        *slot = snap.clone();
+                                    }
+
+                                    // update route_table
+                                    let build_route_table = RouteTable::new(&snap);
+                                    {
+                                        let mut write_route_table = route_table_for_task.write().await;
+                                        *write_route_table = Arc::new(build_route_table);
+                                    }
+
+                                    // update TLS list
+                                    let certs = certs::certificates_from_snap(&snap);
+                                    sni_for_task.store(Arc::new(certs));
+
+                                    if !got_first {
+                                        got_first = true;
+                                        info!(
+                                            "received first snapshot: version={}, routes={}, clusters={}",
+                                            snap.version,
+                                            snap.routes.len(),
+                                            snap.clusters.len()
+                                        );
+                                    } else {
+                                        info!(
+                                            "snapshot update: version={}, routes={}, clusters={}",
+                                            snap.version,
+                                            snap.routes.len(),
+                                            snap.clusters.len()
+                                        );
+                                    }
+                                }
+                                Ok(None) => {
+                                    warn!("gRPC stream closed by server");
+                                    break; // переподключение
+                                }
+                                Err(status) => {
+                                    warn!("gRPC stream error: {}", status);
+                                    break; // переподключение
+                                }
+                            }
                         }
                     }
                 }
 
-                // строгий режим — гасить ready при потере стрима:
+                // strict mode, set not ready when lost stream
                 // {
                 //     let mut r = ready.write().await;
                 //     *r = false;
@@ -187,7 +206,9 @@ impl GrpcManager {
             ready,
             snapshot,
             route_table,
-            sni
+            sni,
+            ca_updated,
+            ca_pem
         }
     }
 
@@ -204,4 +225,65 @@ impl GrpcManager {
     pub async fn latest_snapshot(&self) -> Snapshot {
         self.snapshot.read().await.clone()
     }
+
+    async fn watch_for_certs(&self, path_certs_dir: PathBuf) {
+        let cert_ca_path: PathBuf = path_certs_dir.clone().join(CERT_CA_NAME);
+
+        loop {
+            tokio::select! {
+                _ = self.cancel.cancelled() => {
+                    tracing::info!("cert watcher: stop requested");
+                    break;
+                }
+
+                _ = sleep(Duration::from_secs(2)) => {
+                    if let Ok(changed) = self.try_load_and_store_ca(&cert_ca_path).await {
+                        if changed {
+                            // let's wake up the gRPC loop so that it reconnects with the new TLS
+                            self.ca_updated.notify_one();
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    async fn try_load_and_store_ca(&self, path: &Path) -> Result<bool, ()> {
+        match tokio::fs::read(path).await {
+            Ok(new_bytes) if !new_bytes.is_empty() => {
+                if !looks_like_pem(&new_bytes) {
+                    tracing::warn!("CA file at {} is not a PEM, skip", path.display());
+                    return Ok(false);
+                }
+
+                let current = self.ca_pem.load(); // Arc<Vec<u8>>
+                if bytes_eq(&new_bytes, &current) {
+                    self.ca_pem.store(Arc::new(new_bytes));
+                    tracing::info!("CA reloaded from {}", path.display());
+                    return Ok(true);
+                }
+                Ok(false)
+            }
+            Ok(_) => {
+                tracing::warn!("CA file {} is empty, skip", path.display());
+                Ok(false)
+            }
+            Err(e) => {
+                tracing::warn!("failed to read CA file {}: {}", path.display(), e);
+                Err(())
+            }
+        }
+    }
+}
+
+fn looks_like_pem(bytes: &[u8]) -> bool {
+    let s = match std::str::from_utf8(bytes) {
+        Ok(s) => s,
+        Err(_) => return false,
+    };
+    s.contains("-----BEGIN CERTIFICATE-----")
+}
+
+fn bytes_eq(a: &[u8], b: &[u8]) -> bool {
+    a == b
 }

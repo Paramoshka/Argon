@@ -59,7 +59,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let https_port = std::env::var("HTTPS_PORT").unwrap_or_else(|_| "8443".to_string());
             let admin_port = std::env::var("ADMIN_PORT").unwrap_or_else(|_| "8181".to_string());
             let controller_addr =
-                std::env::var("CONTROLLER_ADDR").unwrap_or_else(|_| "http://127.0.0.1:18000".into());
+                std::env::var("CONTROLLER_ADDR").unwrap_or_else(|_| "https://127.0.0.1:18000".into());
             let node_id = std::env::var("NODE_ID").unwrap_or_else(|_| "dp-axum".into());
 
             // log

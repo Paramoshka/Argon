@@ -96,7 +96,6 @@ spec:
             - mountPath: /certs
               name: tls
               readOnly: true
-              subPath: ca.pem
           {{- if .Values.dataplane.pprofEnabled }}
             - mountPath: /usr/local/pprof
               name: pprof-dataplane

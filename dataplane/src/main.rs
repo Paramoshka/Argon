@@ -14,7 +14,7 @@ use hyper::service::service_fn;
 use hyper::{Method, Request, Response};
 use hyper_util::rt::TokioIo;
 use hyper_util::{rt::TokioExecutor, server::conn::auto};
-use rustls::ServerConfig;
+use rustls::{ServerConfig};
 use rustls::server::ResolvesServerCert;
 use snapshot::RouteTable;
 use std::net::{Ipv4Addr, SocketAddr};
@@ -47,6 +47,10 @@ struct AppState {
 
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    rustls::crypto::ring::default_provider()
+        .install_default()
+        .expect("failed to install ring CryptoProvider");
+    // TLS provider Could not automatically determine the process-level CryptoProvider from Rustls crate features.
     let certs_dir = PathBuf::from("/certs");
     let thread_count = std::env::var("COUNT_THREADS").unwrap_or_else(|_| num_cpus::get().to_string());
     let thread_count = thread_count.parse::<usize>().unwrap_or_else(|_| 1);

@@ -1,8 +1,9 @@
 package controller
 
 import (
-	"argon.github.io/ingress/internal/grpc"
 	"context"
+
+	"argon.github.io/ingress/internal/grpc"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -59,14 +60,14 @@ func (c *CertsReconciler) createCertsSecret(ctx context.Context, namespace strin
 	}
 
 	_, err := controllerutil.CreateOrUpdate(ctx, c.client, secret, func() error {
-		secret.Type = corev1.SecretTypeTLS // "kubernetes.io/tls"
 
 		if secret.Data == nil {
-			secret.Data = make(map[string][]byte, 2)
+			secret.Data = make(map[string][]byte, 3)
 		}
 
-		secret.Data[corev1.TLSCertKey] = c.bundle.ServerCertPEM      // "tls.crt"
-		secret.Data[corev1.TLSPrivateKeyKey] = c.bundle.ServerKeyPEM // "tls.key"
+		secret.Data[corev1.TLSCertKey] = c.bundle.ServerCertPEM          // "tls.crt"
+		secret.Data[corev1.TLSPrivateKeyKey] = c.bundle.ServerKeyPEM     // "tls.key"
+		secret.Data[corev1.ServiceAccountRootCAKey] = c.bundle.CACertPEM // "ca.crt"
 
 		// if secret.Labels == nil { secret.Labels = map[string]string{} }
 		// secret.Labels["app.kubernetes.io/managed-by"] = "your-controller"

@@ -20,7 +20,7 @@ use crate::argon_config::{
 use crate::certs;
 use crate::snapshot::RouteTable;
 
-const CERT_CA_NAME: &str = "ca.pem";
+const CERT_CA_NAME: &str = "ca.crt";
 
 pub struct GrpcManager {
     cancel: CancellationToken,

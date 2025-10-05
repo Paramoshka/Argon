@@ -7,8 +7,11 @@ metadata:
     {{- include "helm.labels" . | nindent 4 }}
 rules:
   - apiGroups: [""]
-    resources: ["endpoints", "services", "pods", "nodes", "namespaces", "secrets"]
+    resources: ["endpoints", "services", "pods", "nodes", "namespaces"]
     verbs: ["list", "watch", "get"]
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "list", "watch", "create", "update", "patch"]
   - apiGroups: ["networking.k8s.io"]
     resources: ["ingresses", "ingressclasses"]
     verbs: ["get", "list", "watch"]

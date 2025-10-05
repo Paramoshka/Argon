@@ -24,9 +24,9 @@ rcgen = "0.14.3"
 anyhow = "1.0.98"
 arc-swap = "1.7.1"
 rustls-pemfile = { version = "2.2.0"}
-rustls = "0.23.31"
+rustls = { version = "0.23.32", features = ["ring"] }
 num_cpus = "1.17.0"
-hyper-rustls = {version = "0.27.7", features = ["http2"]}
+hyper-rustls = {version = "0.27.7", features = ["http2", "ring"]}
 # prost-types = "0.13"
 
 [build-dependencies]

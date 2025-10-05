@@ -18,6 +18,7 @@ use rustls::ServerConfig;
 use rustls::server::ResolvesServerCert;
 use snapshot::RouteTable;
 use std::net::{Ipv4Addr, SocketAddr};
+use std::path::PathBuf;
 use std::sync::Arc;
 use arc_swap::ArcSwap;
 use rustls::sign::CertifiedKey;
@@ -46,6 +47,7 @@ struct AppState {
 
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let certs_dir = PathBuf::from("/certs");
     let thread_count = std::env::var("COUNT_THREADS").unwrap_or_else(|_| num_cpus::get().to_string());
     let thread_count = thread_count.parse::<usize>().unwrap_or_else(|_| 1);
     tokio::runtime::Builder::new_multi_thread()
@@ -94,6 +96,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let manager = GrpcManager::start(
                 controller_addr,
                 node_id,
+                certs_dir,
                 state.ready.clone(),
                 state.snapshot.clone(),
                 state.route_table.clone(),

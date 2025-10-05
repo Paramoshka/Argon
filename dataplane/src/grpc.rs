@@ -1,9 +1,6 @@
 use arc_swap::ArcSwap;
-use prost::Message;
-use rcgen::KeyIdMethod::Sha256;
 use rustls::sign::CertifiedKey;
 use std::collections::HashMap;
-use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
@@ -28,6 +25,7 @@ const CERT_CA_NAME: &str = "ca.pem";
 pub struct GrpcManager {
     cancel: CancellationToken,
     handle: tokio::task::JoinHandle<()>,
+    certs_watcher_handle: tokio::task::JoinHandle<()>,
     ready: Arc<RwLock<bool>>,
     snapshot: Arc<RwLock<Snapshot>>,
     route_table: Arc<RwLock<Arc<RouteTable>>>,
@@ -40,6 +38,7 @@ impl GrpcManager {
     pub fn start(
         controller_addr: String,
         node_id: String,
+        certs_dir: PathBuf,
         ready: Arc<RwLock<bool>>,
         snapshot: Arc<RwLock<Snapshot>>,
         route_table: Arc<RwLock<Arc<RouteTable>>>,
@@ -53,8 +52,36 @@ impl GrpcManager {
         let route_table_for_task = route_table.clone();
         let sni_for_task = sni.clone();
         let ca_updated = Arc::new(Notify::new());
-        let ca_pem: Arc<ArcSwap<Vec<u8>>> =
-            Arc::new(ArcSwap::from_pointee(Vec::new()));
+        let ca_pem: Arc<ArcSwap<Vec<u8>>> = Arc::new(ArcSwap::from_pointee(Vec::new()));
+        let ca_pem_for_grpc_loop = ca_pem.clone();
+        let ca_updated_for_grpc_loop = ca_updated.clone();
+
+        let certs_watcher_handle = {
+            let cancel_clone = cancel.clone();
+            let ca_updated_clone = ca_updated.clone();
+            let ca_pem_clone = ca_pem.clone();
+
+            tokio::spawn(async move {
+                let cert_ca_path = certs_dir.join(CERT_CA_NAME);
+                loop {
+                    tokio::select! {
+                        _ = cancel_clone.cancelled() => {
+                            info!("Cancelled watch certs");
+                            break;
+                        }
+
+                        _ = sleep(Duration::from_secs(2)) => {
+                            if let Ok(changed) = try_load_and_store_ca(&cert_ca_path, &ca_pem_clone).await {
+                                if changed {
+                                    ca_updated_clone.notify_one();
+                                }
+                            }
+                        }
+                    }
+                }
+            })
+        };
+
         let handle = tokio::spawn(async move {
             let mut backoff_ms: u64 = 500;
             let backoff_max: u64 = 10_000;
@@ -67,14 +94,28 @@ impl GrpcManager {
 
                 // Result<Channel, String>
                 let connect_fut = async {
-                    // TODO need tls config
+                    let ca_cert_bytes = ca_pem_for_grpc_loop.load().clone();
+
+                    if ca_cert_bytes.is_empty() {
+                        return Err("CA certificate is not available yet".to_string());
+                    }
+
+                    let ca = tonic::transport::Certificate::from_pem(&*ca_cert_bytes);
+
+                    let tls_config = tonic::transport::ClientTlsConfig::new()
+                        .ca_certificate(ca);
+
                     let endpoint = Channel::from_shared(controller_addr.clone())
                         .map_err(|e| format!("invalid addr: {e}"))?;
 
+
                     let ch = endpoint
+                        .tls_config(tls_config)
+                        .map_err(|e| format!("TLS config error: {e}"))?
                         .connect()
                         .await
                         .map_err(|e| format!("connect error: {e}"))?;
+
                     Ok::<Channel, String>(ch)
                 };
 
@@ -133,9 +174,9 @@ impl GrpcManager {
                             info!("gRPC manager: cancellation while streaming");
                             return;
                         }
-                        _ = cancel_child.cancelled() => {
+                        _ = ca_updated_for_grpc_loop.notified() => {
                             info!("CA updated — forcing reconnect to apply new TLS");
-                            break;
+                            break; // Выходим из внутреннего цикла, чтобы переподключиться
                         }
 
                         msg = stream.message() => {
@@ -203,18 +244,19 @@ impl GrpcManager {
         Self {
             cancel,
             handle,
+            certs_watcher_handle,
             ready,
             snapshot,
             route_table,
             sni,
             ca_updated,
-            ca_pem
+            ca_pem,
         }
     }
 
     pub async fn shutdown(self) {
         self.cancel.cancel();
-        let _ = self.handle.await;
+        let _ = tokio::join!(self.handle, self.certs_watcher_handle);
         info!("gRPC manager stopped");
     }
 
@@ -225,55 +267,38 @@ impl GrpcManager {
     pub async fn latest_snapshot(&self) -> Snapshot {
         self.snapshot.read().await.clone()
     }
+}
 
-    async fn watch_for_certs(&self, path_certs_dir: PathBuf) {
-        let cert_ca_path: PathBuf = path_certs_dir.clone().join(CERT_CA_NAME);
+async fn try_load_and_store_ca(
+    path: &Path,
+    ca_pem_arc: &Arc<ArcSwap<Vec<u8>>>,
+) -> Result<bool, ()> {
+    match tokio::fs::read(path).await {
+        Ok(new_bytes) if !new_bytes.is_empty() => {
+            let current = ca_pem_arc.load();
 
-        loop {
-            tokio::select! {
-                _ = self.cancel.cancelled() => {
-                    tracing::info!("cert watcher: stop requested");
-                    break;
-                }
-
-                _ = sleep(Duration::from_secs(2)) => {
-                    if let Ok(changed) = self.try_load_and_store_ca(&cert_ca_path).await {
-                        if changed {
-                            // let's wake up the gRPC loop so that it reconnects with the new TLS
-                            self.ca_updated.notify_one();
-                        }
-                    }
-                }
+            if !bytes_eq(&new_bytes, &current) {
+                ca_pem_arc.store(Arc::new(new_bytes));
+                tracing::info!("CA reloaded from {}", path.display());
+                return Ok(true);
             }
+            Ok(false)
+        }
+
+        Ok(_) => {
+            tracing::warn!("CA file {} is empty, skip", path.display());
+            Ok(false)
+        }
+        Err(e) => {
+            tracing::warn!("failed to read CA file {}: {}", path.display(), e);
+            Err(())
         }
     }
+}
 
-    async fn try_load_and_store_ca(&self, path: &Path) -> Result<bool, ()> {
-        match tokio::fs::read(path).await {
-            Ok(new_bytes) if !new_bytes.is_empty() => {
-                if !looks_like_pem(&new_bytes) {
-                    tracing::warn!("CA file at {} is not a PEM, skip", path.display());
-                    return Ok(false);
-                }
 
-                let current = self.ca_pem.load(); // Arc<Vec<u8>>
-                if bytes_eq(&new_bytes, &current) {
-                    self.ca_pem.store(Arc::new(new_bytes));
-                    tracing::info!("CA reloaded from {}", path.display());
-                    return Ok(true);
-                }
-                Ok(false)
-            }
-            Ok(_) => {
-                tracing::warn!("CA file {} is empty, skip", path.display());
-                Ok(false)
-            }
-            Err(e) => {
-                tracing::warn!("failed to read CA file {}: {}", path.display(), e);
-                Err(())
-            }
-        }
-    }
+fn bytes_eq(a: &[u8], b: &[u8]) -> bool {
+    a == b
 }
 
 fn looks_like_pem(bytes: &[u8]) -> bool {
@@ -282,8 +307,4 @@ fn looks_like_pem(bytes: &[u8]) -> bool {
         Err(_) => return false,
     };
     s.contains("-----BEGIN CERTIFICATE-----")
-}
-
-fn bytes_eq(a: &[u8], b: &[u8]) -> bool {
-    a == b
 }

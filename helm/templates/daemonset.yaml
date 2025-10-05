@@ -92,8 +92,12 @@ spec:
               port: {{ .Values.dataplane.ports.adminport | default 8181 }}
             initialDelaySeconds: 2
             periodSeconds: 5
-          {{- if .Values.dataplane.pprofEnabled }}
           volumeMounts:
+            - mountPath: /certs
+              name: tls
+              readOnly: true
+              subPath: ca.pem
+          {{- if .Values.dataplane.pprofEnabled }}
             - mountPath: /usr/local/pprof
               name: pprof-dataplane
               readOnly: false
@@ -125,10 +129,14 @@ spec:
       tolerations:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-      {{- if .Values.dataplane.pprofEnabled }}
       volumes:
+        - name: tls
+          secret:
+            secretName: grpc-tls
+      {{- if .Values.dataplane.pprofEnabled }}
         - name: pprof-dataplane
           hostPath:
             path: /var/argon/pprof
             type: "DirectoryOrCreate"
       {{- end }}
+

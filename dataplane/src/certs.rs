@@ -1,15 +1,15 @@
-use std::collections::HashMap;
-use std::fmt::{Debug, Formatter};
-use std::io::Cursor;
-use std::sync::Arc;
+use crate::argon_config::Snapshot;
+use arc_swap::ArcSwap;
+use rcgen::generate_simple_self_signed;
 use rustls::crypto::aws_lc_rs::sign::any_supported_type;
 use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
 use rustls::server::{ClientHello, ResolvesServerCert};
 use rustls::sign::{CertifiedKey, SigningKey};
-use rcgen::{generate_simple_self_signed};
-use crate::argon_config::Snapshot;
-use arc_swap::ArcSwap;
-use  rustls_pemfile::{read_all, Item};
+use rustls_pemfile::{Item, read_all};
+use std::collections::HashMap;
+use std::fmt::{Debug, Formatter};
+use std::io::Cursor;
+use std::sync::Arc;
 
 pub struct DynResolver {
     map: Arc<ArcSwap<HashMap<String, Arc<CertifiedKey>>>>,
@@ -17,7 +17,10 @@ pub struct DynResolver {
 }
 
 impl DynResolver {
-    pub fn new(default: Arc<CertifiedKey>, map: Arc<ArcSwap<HashMap<String, Arc<CertifiedKey>>>>) -> Self {
+    pub fn new(
+        default: Arc<CertifiedKey>,
+        map: Arc<ArcSwap<HashMap<String, Arc<CertifiedKey>>>>,
+    ) -> Self {
         Self { map, default }
     }
 }
@@ -26,9 +29,7 @@ pub fn certificates_from_snap(snapshot: &Snapshot) -> HashMap<String, Arc<Certif
     let mut map = HashMap::new();
 
     for sni in &snapshot.server_tls {
-        let mut cert_reader = Cursor::new(
-            &sni.cert_pem[..]
-        );
+        let mut cert_reader = Cursor::new(&sni.cert_pem[..]);
         let mut chain_der: Vec<CertificateDer<'static>> = Vec::new();
 
         for item in read_all(&mut cert_reader) {
@@ -52,15 +53,12 @@ pub fn certificates_from_snap(snapshot: &Snapshot) -> HashMap<String, Arc<Certif
             continue;
         }
 
-
-        let mut key_reader = Cursor::new(
-            &sni.key_pem[..]
-        );
+        let mut key_reader = Cursor::new(&sni.key_pem[..]);
 
         let key_der: PrivateKeyDer<'static> = match rustls_pemfile::read_one(&mut key_reader) {
             Ok(Some(Item::Pkcs8Key(der))) => PrivateKeyDer::from(der),
             Ok(Some(Item::Pkcs1Key(der))) => PrivateKeyDer::from(der), // RSA
-            Ok(Some(Item::Sec1Key(der)))  => PrivateKeyDer::from(der), // EC
+            Ok(Some(Item::Sec1Key(der))) => PrivateKeyDer::from(der),  // EC
             Ok(Some(_other)) => {
                 tracing::error!("unsupported private key type in key_pem");
                 continue;
@@ -74,7 +72,7 @@ pub fn certificates_from_snap(snapshot: &Snapshot) -> HashMap<String, Arc<Certif
                 continue;
             }
         };
-        
+
         let signing_key = match any_supported_type(&key_der) {
             Ok(k) => k,
             Err(e) => {
@@ -82,9 +80,9 @@ pub fn certificates_from_snap(snapshot: &Snapshot) -> HashMap<String, Arc<Certif
                 continue;
             }
         };
-        
+
         let ck = Arc::new(CertifiedKey::new(chain_der, signing_key));
-        
+
         for host in sni.sni.iter() {
             map.insert(host.clone(), ck.clone());
         }
@@ -114,13 +112,13 @@ impl ResolvesServerCert for DynResolver {
 
         // wildcard
         if let Some(pos) = name.find('.') {
-            let star = format!("*.{}", &name[pos+1..]);
+            let star = format!("*.{}", &name[pos + 1..]);
             if let Some(v) = self.map.load().get(&star) {
                 // tracing::info!("resolved single certificate for wildcard {}", name);
                 return Some(v.clone());
             }
         }
-        
+
         tracing::info!("not resolved single certificate for wildcard {}", name);
         println!("certs in resolve function: {:?}", self.map.load());
         Some(self.default.clone())
@@ -138,8 +136,7 @@ pub fn make_dummy_cert() -> anyhow::Result<Arc<CertifiedKey>> {
     let cert_der = CertificateDer::from(cert.cert);
 
     let key_bytes = cert.signing_key.serialize_der(); // Vec<u8> (pkcs8)
-    let key_der: PrivateKeyDer<'static> =
-        PrivateKeyDer::from(PrivatePkcs8KeyDer::from(key_bytes));
+    let key_der: PrivateKeyDer<'static> = PrivateKeyDer::from(PrivatePkcs8KeyDer::from(key_bytes));
 
     let signing_key: Arc<dyn SigningKey> = any_supported_type(&key_der)?;
 

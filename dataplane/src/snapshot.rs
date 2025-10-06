@@ -1,8 +1,8 @@
+use crate::argon_config::{Endpoint, Snapshot};
 use std::cmp::PartialEq;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use crate::argon_config::{Endpoint, Snapshot};
 
 #[derive(Clone, Debug)]
 pub struct RouteRule {
@@ -21,11 +21,14 @@ pub struct ClusterRule {
     pub timeout_ms: i32,
     pub retries: i32,
     pub backend_protocol: BackendProtocol,
-    rr_cursor: Arc<AtomicUsize>
+    rr_cursor: Arc<AtomicUsize>,
 }
 
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
-enum PathType { Prefix, Exact }
+enum PathType {
+    Prefix,
+    Exact,
+}
 impl PathType {
     fn parse(s: &str) -> Option<Self> {
         match s {
@@ -37,7 +40,9 @@ impl PathType {
 }
 
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
-enum LBPolicy { RoundRobin }
+enum LBPolicy {
+    RoundRobin,
+}
 
 impl LBPolicy {
     fn parse(s: &str) -> Option<Self> {
@@ -50,19 +55,20 @@ impl LBPolicy {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum BackendProtocol {
-    H1, H2,
+    H1,
+    H2,
     H1Ssl,
-    H2Ssl 
+    H2Ssl,
 }
 
 impl BackendProtocol {
     fn parse(s: &str) -> Option<Self> {
-        match s { 
+        match s {
             "h1" => Some(BackendProtocol::H1),
             "h2" => Some(BackendProtocol::H2),
             "h1-ssl" => Some(BackendProtocol::H1Ssl),
             "h2-ssl" => Some(BackendProtocol::H2Ssl),
-            _ => None
+            _ => None,
         }
     }
 }
@@ -71,7 +77,7 @@ impl BackendProtocol {
 pub struct RouteTable {
     version: String,
     routes_by_host: HashMap<String, Arc<Vec<RouteRule>>>, // host name -> route_rule
-    clusters: HashMap<String, Arc<ClusterRule>>, // cluster name -> cluster_rule
+    clusters: HashMap<String, Arc<ClusterRule>>,          // cluster name -> cluster_rule
 }
 
 impl Default for RouteTable {
@@ -86,16 +92,16 @@ impl Default for RouteTable {
 
 impl RouteTable {
     // new create sorted hasMap route table for fast routing
-    pub fn new(
-        snapshot: &Snapshot
-    ) -> Self {
+    pub fn new(snapshot: &Snapshot) -> Self {
         // create hashMap clusters
         let mut clusters: HashMap<String, Arc<ClusterRule>> = HashMap::new();
         for cluster in &snapshot.clusters {
-            let bp = BackendProtocol::parse(&cluster.backend_protocol).unwrap_or_else(|| BackendProtocol::H1);
-            
+            let bp = BackendProtocol::parse(&cluster.backend_protocol)
+                .unwrap_or_else(|| BackendProtocol::H1);
+
             if let Some(lb) = LBPolicy::parse(&cluster.lb_policy) {
-                clusters.entry(cluster.name.to_ascii_lowercase())
+                clusters
+                    .entry(cluster.name.to_ascii_lowercase())
                     .insert_entry(Arc::from(ClusterRule {
                         name: "".to_string(), // maybe remove ?
                         lb_policy: LBPolicy::RoundRobin,
@@ -112,7 +118,8 @@ impl RouteTable {
         let mut buckets: HashMap<String, Vec<RouteRule>> = HashMap::new();
         for r in &snapshot.routes {
             if let Some(pt) = PathType::parse(&r.path_type) {
-                buckets.entry(r.host.to_ascii_lowercase())
+                buckets
+                    .entry(r.host.to_ascii_lowercase())
                     .or_default()
                     .push(RouteRule {
                         path: r.path.clone(),
@@ -126,7 +133,8 @@ impl RouteTable {
         // sorting in each bucket: priority, path.len, Exact, Prefix
         for v in buckets.values_mut() {
             v.sort_by(|a, b| {
-                b.priority.cmp(&a.priority)
+                b.priority
+                    .cmp(&a.priority)
                     .then(b.path.len().cmp(&a.path.len()))
                     .then_with(|| match (a.path_type, b.path_type) {
                         (PathType::Exact, PathType::Prefix) => std::cmp::Ordering::Less,
@@ -138,7 +146,6 @@ impl RouteTable {
 
         // convert type routes
         let routes_by_host = buckets.into_iter().map(|(k, v)| (k, Arc::new(v))).collect();
-
 
         RouteTable {
             version: snapshot.version.clone(),
@@ -161,13 +168,13 @@ impl RouteTable {
             }
         }
 
-       // println!("For host {} found in path {:?}", host, self.routes_by_host);
+        // println!("For host {} found in path {:?}", host, self.routes_by_host);
 
         None
     }
 
-    // get path if match 
-    // todo make Prefix in more precision and add Implemented     
+    // get path if match
+    // todo make Prefix in more precision and add Implemented
     fn match_in_bucket<'a>(rules: &'a [RouteRule], path: &str) -> Option<&'a RouteRule> {
         rules.iter().find(|r| match r.path_type {
             PathType::Exact => r.path == path,
@@ -184,7 +191,7 @@ impl RouteTable {
             _ => Some(cluster.endpoints.first()?.clone()),
         }
     }
-    
+
     // get cluster rule timeouts, retries etc...
     pub fn get_cluster_rules(&self, cluster_name: &str) -> Option<Arc<ClusterRule>> {
         let cluster = self.clusters.get(cluster_name)?;
@@ -194,7 +201,9 @@ impl RouteTable {
     // RoundRobin algorithm
     fn round_robin(&self, cluster: &ClusterRule) -> Option<Endpoint> {
         let len = cluster.endpoints.len();
-        if len == 0 { return None; }
+        if len == 0 {
+            return None;
+        }
         let idx = cluster.rr_cursor.fetch_add(1, Ordering::Relaxed) % len;
         Some(cluster.endpoints[idx].clone())
     }

@@ -1,8 +1,8 @@
 use bytes::Bytes;
 use http_body_util::combinators::BoxBody;
 use hyper_rustls::{HttpsConnector, HttpsConnectorBuilder};
-use hyper_util::client::legacy::connect::HttpConnector;
 use hyper_util::client::legacy::Client;
+use hyper_util::client::legacy::connect::HttpConnector;
 use hyper_util::rt::{TokioExecutor, TokioTimer};
 use std::time::Duration;
 
@@ -12,7 +12,7 @@ pub struct ClientPool {
 }
 
 const DEFAULT_COUNT_POOL: usize = 1024;
-const DEFAULT_IDLE_TIMEOUT:u64 = 60;
+const DEFAULT_IDLE_TIMEOUT: u64 = 60;
 
 impl ClientPool {
     pub fn new_http_pool_connector(count_thread: usize) -> Self {
@@ -23,7 +23,7 @@ impl ClientPool {
             .https_or_http()
             .enable_all_versions()
             .build();
-        
+
         // Construct a Hyper client with the HTTPS connector.
         let connector = Client::builder(TokioExecutor::new())
             .pool_timer(TokioTimer::new())

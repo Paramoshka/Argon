@@ -1,24 +1,23 @@
 use crate::AppState;
-use crate::snapshot::{BackendProtocol};
+use crate::snapshot::BackendProtocol;
 use bytes::Bytes;
 use http::uri::{Authority, PathAndQuery};
 use http::{HeaderMap, HeaderName, HeaderValue, StatusCode, Uri, Version, header};
+use http_body_util::Full;
 use http_body_util::{BodyExt, combinators::BoxBody};
 use hyper::body::Incoming;
 use hyper::{Request, Response};
+use std::convert::Infallible;
 use std::str::FromStr;
 use std::time::Duration;
 use tokio_util::future::FutureExt;
-use std::convert::Infallible;
-use http_body_util::{Full};
 
 pub struct Proxy;
 
 // hop-by-hop headers that cannot be proxied (RFC 7230)
 
-
 static PROXY_CONNECTION: HeaderName = HeaderName::from_static("proxy-connection");
-static KEEP_ALIVE: HeaderName      = HeaderName::from_static("keep-alive");
+static KEEP_ALIVE: HeaderName = HeaderName::from_static("keep-alive");
 
 static HOP_HEADERS_REF: &[&HeaderName] = &[
     &header::CONNECTION,
@@ -98,22 +97,27 @@ pub async fn proxy_handler(
 
     // lease read lock
     drop(route_table);
-    
+
     let addr = format!("{}:{}", ep.address, ep.port);
     let pool = state.client_pool.load();
     let timeout = Duration::from_millis(cluster_rules.timeout_ms as u64);
-    let Ok(req) = pool.connector.request(req.map(|b| b.boxed())).timeout(timeout).await else { 
+    let Ok(req) = pool
+        .connector
+        .request(req.map(|b| b.boxed()))
+        .timeout(timeout)
+        .await
+    else {
         let err_text = format!("Upstream connector timed out: {:?}", addr);
         return Ok(text(StatusCode::BAD_GATEWAY, err_text));
     };
-    
-    let mut resp = match req { 
+
+    let mut resp = match req {
         Ok(resp) => resp,
         Err(e) => {
             return Ok(text(StatusCode::BAD_GATEWAY, e.to_string()));
         }
     };
-    
+
     remove_hop_headers(resp.headers_mut());
 
     Ok(resp.map(|b| b.boxed()))
@@ -129,7 +133,11 @@ fn handle_req_upstream(
     let mut parts = req.uri().clone().into_parts();
 
     let is_tls = matches!(proto, BackendProtocol::H1Ssl | BackendProtocol::H2Ssl);
-    parts.scheme = Some(if is_tls { http::uri::Scheme::HTTPS } else { http::uri::Scheme::HTTP });
+    parts.scheme = Some(if is_tls {
+        http::uri::Scheme::HTTPS
+    } else {
+        http::uri::Scheme::HTTP
+    });
 
     match proto {
         BackendProtocol::H2 | BackendProtocol::H2Ssl => *req.version_mut() = Version::HTTP_2,
@@ -163,7 +171,6 @@ fn handle_req_upstream(
     }
 }
 
-
 fn text(status: StatusCode, s: impl Into<String>) -> http::Response<BoxBody<Bytes, hyper::Error>> {
     let body: BoxBody<Bytes, hyper::Error> = Full::new(Bytes::from(s.into()))
         .map_err(|never: Infallible| match never {})
@@ -183,7 +190,6 @@ fn remove_hop_headers(headers: &mut HeaderMap) {
 }
 
 fn add_forward_headers(h: &mut http::HeaderMap, is_tls: bool, original_host: &str) {
-
     let proto = if is_tls { "https" } else { "http" };
     let _ = h.insert(
         HeaderName::from_static("x-forwarded-proto"),

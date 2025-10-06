@@ -1,11 +1,11 @@
 mod certs;
+mod client_pool;
 mod grpc;
 mod proxy;
 mod snapshot;
 mod utils;
-mod client_pool;
 
-use std::collections::HashMap;
+use arc_swap::ArcSwap;
 use bytes::Bytes;
 use http::StatusCode;
 use http_body_util::{BodyExt, combinators::BoxBody};
@@ -14,14 +14,14 @@ use hyper::service::service_fn;
 use hyper::{Method, Request, Response};
 use hyper_util::rt::TokioIo;
 use hyper_util::{rt::TokioExecutor, server::conn::auto};
-use rustls::{ServerConfig};
+use rustls::ServerConfig;
 use rustls::server::ResolvesServerCert;
+use rustls::sign::CertifiedKey;
 use snapshot::RouteTable;
+use std::collections::HashMap;
 use std::net::{Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
 use std::sync::Arc;
-use arc_swap::ArcSwap;
-use rustls::sign::CertifiedKey;
 use tokio::net::TcpListener;
 use tokio::sync::RwLock;
 use tokio::task::JoinSet;
@@ -31,10 +31,10 @@ use tokio_util::sync::CancellationToken;
 mod argon_config {
     include!("argon.config.rs");
 }
+use crate::client_pool::ClientPool;
 use crate::grpc::GrpcManager;
 use crate::proxy::proxy_handler;
 use argon_config::Snapshot;
-use crate::client_pool::ClientPool;
 
 #[derive(Clone, Default)]
 struct AppState {
@@ -45,14 +45,14 @@ struct AppState {
     sni: Arc<ArcSwap<HashMap<String, Arc<CertifiedKey>>>>,
 }
 
-
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     rustls::crypto::ring::default_provider()
         .install_default()
         .expect("failed to install ring CryptoProvider");
     // TLS provider Could not automatically determine the process-level CryptoProvider from Rustls crate features.
     let certs_dir = PathBuf::from("/certs");
-    let thread_count = std::env::var("COUNT_THREADS").unwrap_or_else(|_| num_cpus::get().to_string());
+    let thread_count =
+        std::env::var("COUNT_THREADS").unwrap_or_else(|_| num_cpus::get().to_string());
     let thread_count = thread_count.parse::<usize>().unwrap_or_else(|_| 1);
     tokio::runtime::Builder::new_multi_thread()
         .worker_threads(thread_count)
@@ -64,8 +64,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let http_port = std::env::var("HTTP_PORT").unwrap_or_else(|_| "8080".to_string());
             let https_port = std::env::var("HTTPS_PORT").unwrap_or_else(|_| "8443".to_string());
             let admin_port = std::env::var("ADMIN_PORT").unwrap_or_else(|_| "8181".to_string());
-            let controller_addr =
-                std::env::var("CONTROLLER_ADDR").unwrap_or_else(|_| "https://127.0.0.1:18000".into());
+            let controller_addr = std::env::var("CONTROLLER_ADDR")
+                .unwrap_or_else(|_| "https://127.0.0.1:18000".into());
             let node_id = std::env::var("NODE_ID").unwrap_or_else(|_| "dp-axum".into());
 
             // log
@@ -81,7 +81,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 snapshot: Arc::new(RwLock::new(Snapshot::default())),
                 route_table: Arc::new(RwLock::new(Arc::new(RouteTable::default()))),
                 sni: Arc::new(ArcSwap::new(Arc::new(HashMap::new()))),
-                client_pool: Arc::new(ArcSwap::new(Arc::new(ClientPool::new_http_pool_connector(thread_count))))
+                client_pool: Arc::new(ArcSwap::new(Arc::new(ClientPool::new_http_pool_connector(
+                    thread_count,
+                )))),
             };
 
             // shutdown token
@@ -139,7 +141,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
             });
 
-            let http_addr  = SocketAddr::from((Ipv4Addr::UNSPECIFIED, http_port.parse()?));
+            let http_addr = SocketAddr::from((Ipv4Addr::UNSPECIFIED, http_port.parse()?));
             let https_addr = SocketAddr::from((Ipv4Addr::UNSPECIFIED, https_port.parse()?));
 
             let dummy_cert = certs::make_dummy_cert()?;
@@ -148,18 +150,27 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let mut server_config = ServerConfig::builder()
                 .with_no_client_auth()
                 .with_cert_resolver(server_cert_resolver);
-            server_config.alpn_protocols = vec![b"h2".to_vec(), b"http/1.1".to_vec(), b"http/1.0".to_vec()];
+            server_config.alpn_protocols =
+                vec![b"h2".to_vec(), b"http/1.1".to_vec(), b"http/1.0".to_vec()];
 
-
-            let http_handle  = tokio::spawn(run_http(http_addr,  state.clone(), shutdown_http.clone()));
-            let https_handle = tokio::spawn(run_https(https_addr, state.clone(), server_config, shutdown_https.clone()));
-
+            let http_handle =
+                tokio::spawn(run_http(http_addr, state.clone(), shutdown_http.clone()));
+            let https_handle = tokio::spawn(run_https(
+                https_addr,
+                state.clone(),
+                server_config,
+                shutdown_https.clone(),
+            ));
 
             shutdown_select.cancelled().await;
             tracing::info!("shutdown requested; waiting servers to drain...");
 
-            if let Err(e) = http_handle.await { tracing::error!("HTTP task join error: {e:?}"); }
-            if let Err(e) = https_handle.await { tracing::error!("HTTPS task join error: {e:?}"); }
+            if let Err(e) = http_handle.await {
+                tracing::error!("HTTP task join error: {e:?}");
+            }
+            if let Err(e) = https_handle.await {
+                tracing::error!("HTTPS task join error: {e:?}");
+            }
 
             // shutdown gRPC server after http server
             manager.shutdown().await;
@@ -168,7 +179,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         })
 }
 
-async fn run_http(socket: SocketAddr, state: AppState, shutdown: CancellationToken) -> anyhow::Result<()> {
+async fn run_http(
+    socket: SocketAddr,
+    state: AppState,
+    shutdown: CancellationToken,
+) -> anyhow::Result<()> {
     let listener = TcpListener::bind(socket).await?;
     tracing::info!("HTTP listening on {}", socket);
 
@@ -209,7 +224,12 @@ async fn run_http(socket: SocketAddr, state: AppState, shutdown: CancellationTok
     Ok(())
 }
 
-async fn run_https(socket: SocketAddr, state: AppState, server_config: ServerConfig, shutdown: CancellationToken) -> anyhow::Result<()> {
+async fn run_https(
+    socket: SocketAddr,
+    state: AppState,
+    server_config: ServerConfig,
+    shutdown: CancellationToken,
+) -> anyhow::Result<()> {
     let listener = TcpListener::bind(socket).await?;
     tracing::info!("HTTPS listening on {}", socket);
 
@@ -258,7 +278,6 @@ async fn run_https(socket: SocketAddr, state: AppState, server_config: ServerCon
     while conns.join_next().await.is_some() {}
     Ok(())
 }
-
 
 pub async fn echo(
     req: Request<Incoming>,

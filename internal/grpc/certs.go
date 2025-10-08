@@ -18,7 +18,7 @@ type Bundle struct {
 	ServerKeyPEM  []byte
 }
 
-func NewGRPCServerCerts(commonName string, dnsSANs []string, _ []net.IP) (*Bundle, error) {
+func NewGRPCServerCerts(commonName string, dnsSANs []string, ipSANs []net.IP) (*Bundle, error) {
 	// === 1) CA ===
 	caTmpl := &x509.Certificate{
 		SerialNumber:          randSerial(),
@@ -41,10 +41,11 @@ func NewGRPCServerCerts(commonName string, dnsSANs []string, _ []net.IP) (*Bundl
 		Subject:               pkix.Name{Organization: []string{"Company, INC."}, CommonName: commonName},
 		NotBefore:             time.Now().Add(-5 * time.Minute),
 		NotAfter:              time.Now().AddDate(1, 0, 0),
-		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth},
 		KeyUsage:              x509.KeyUsageDigitalSignature | x509.KeyUsageKeyEncipherment,
 		BasicConstraintsValid: true,
 		DNSNames:              dnsSANs,
+		IPAddresses:           ipSANs,
 	}
 	srvKey, _ := rsa.GenerateKey(rand.Reader, 2048)
 	srvDER, _ := x509.CreateCertificate(rand.Reader, srvTmpl, caTmpl, &srvKey.PublicKey, caKey)

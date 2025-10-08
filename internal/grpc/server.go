@@ -2,16 +2,19 @@ package grpc
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
+	"fmt"
 	"net"
+	"sort"
+	"strings"
 
 	argonpb "argon.github.io/ingress/internal/gen/argonpb/argon"
 	. "argon.github.io/ingress/internal/model"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/keepalive"
 	"sigs.k8s.io/controller-runtime/pkg/log"
-	"crypto/tls"
-	"crypto/x509"
-	"google.golang.org/grpc/credentials"
 )
 
 type Server struct {
@@ -23,9 +26,10 @@ type Server struct {
 }
 
 func NewServer(h *StreamHub, addr, commonName string) (*Server, error) {
-	bundle, err := NewGRPCServerCerts(commonName, []string{commonName}, []net.IP{net.ParseIP("127.0.0.1")})
+	dnsSANs := buildDNSSANs(commonName)
+	bundle, err := NewGRPCServerCerts(commonName, dnsSANs, []net.IP{net.ParseIP("127.0.0.1")})
 	if err != nil {
-		panic(err)
+		return nil, err
 	}
 
 	cert, err := tls.X509KeyPair(bundle.ServerCertPEM, bundle.ServerKeyPEM)
@@ -50,6 +54,41 @@ func NewServer(h *StreamHub, addr, commonName string) (*Server, error) {
 		Bundle:    bundle,
 		tlsConfig: tlsCfg,
 	}, nil
+}
+
+func buildDNSSANs(commonName string) []string {
+	seen := map[string]struct{}{}
+	add := func(name string) {
+		if name == "" {
+			return
+		}
+		if _, ok := seen[name]; ok {
+			return
+		}
+		seen[name] = struct{}{}
+	}
+
+	add(commonName)
+
+	if strings.Contains(commonName, ".") {
+		parts := strings.Split(commonName, ".")
+		if len(parts) >= 2 {
+			svc := parts[0]
+			ns := parts[1]
+			add(svc)
+			add(fmt.Sprintf("%s.%s.svc", svc, ns))
+			add(fmt.Sprintf("%s.%s.svc.cluster.local", svc, ns))
+		}
+	}
+
+	result := make([]string, 0, len(seen))
+	for name := range seen {
+		result = append(result, name)
+	}
+
+	sort.Strings(result)
+
+	return result
 }
 
 func (s *Server) Watch(req *argonpb.WatchRequest, stream argonpb.ConfigDiscovery_WatchServer) error {

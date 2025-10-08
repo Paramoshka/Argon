@@ -8,7 +8,7 @@
 
 1) helm repo add argon https://raw.githubusercontent.com/Paramoshka/Argon/main/.deploy
 2) helm repo update
-3) helm install argon argon/argon --version 0.2.0 --set-string image.tag=v0.2.0
+3) helm install argon argon/argon --version 0.3.0
 
 ## Architecture
 
@@ -53,7 +53,7 @@ How to configure Ingress (annotations, timeouts, backend protocols) — see **do
 
 * ✅ HTTP/2|TLS upstreams, per-route timeouts
 
-* ⏳ mTLS between planes
+* ✅ mTLS between planes
 
 * ⏳ Metrics & OpenTelemetry
 

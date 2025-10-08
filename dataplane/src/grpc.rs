@@ -1,4 +1,6 @@
+use anyhow::{Context, anyhow};
 use arc_swap::ArcSwap;
+use http::Uri;
 use rustls::sign::CertifiedKey;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -7,7 +9,7 @@ use std::time::Duration;
 use tokio::sync::{Notify, RwLock};
 use tokio::time::{sleep, timeout};
 use tokio_util::sync::CancellationToken;
-use tonic::transport::{Channel, Identity};
+use tonic::transport::{Channel, ClientTlsConfig, Identity};
 use tracing::{info, warn};
 
 mod argon_config {
@@ -127,11 +129,11 @@ impl GrpcManager {
                     let client_key_bytes = client_key_pem_for_grpc_loop.load().clone();
 
                     if ca_cert_bytes.is_empty() {
-                        return Err("CA certificate is not available yet".to_string());
+                        return Err(anyhow!("CA certificate is not available yet"));
                     }
 
                     if client_cert_bytes.is_empty() || client_key_bytes.is_empty() {
-                        return Err("Client certificate/key is not available yet".to_string());
+                        return Err(anyhow!("Client certificate/key is not available yet"));
                     }
 
                     let ca = tonic::transport::Certificate::from_pem(&*ca_cert_bytes);
@@ -141,21 +143,30 @@ impl GrpcManager {
                         client_key_bytes.as_ref().clone(),
                     );
 
-                    let tls_config = tonic::transport::ClientTlsConfig::new()
+                    let uri = controller_addr
+                        .parse::<Uri>()
+                        .context("controller address is not a valid URI")?;
+                    let host = uri
+                        .host()
+                        .ok_or_else(|| anyhow!("controller address is missing host component"))?
+                        .to_string();
+
+                    let tls_config = ClientTlsConfig::new()
                         .ca_certificate(ca)
-                        .identity(identity);
+                        .identity(identity)
+                        .domain_name(host);
 
                     let endpoint = Channel::from_shared(controller_addr.clone())
-                        .map_err(|e| format!("invalid addr: {e}"))?;
+                        .context("failed to create gRPC endpoint from controller address")?;
 
                     let ch = endpoint
                         .tls_config(tls_config)
-                        .map_err(|e| format!("TLS config error: {e}"))?
+                        .context("failed to apply TLS client configuration")?
                         .connect()
                         .await
-                        .map_err(|e| format!("connect error: {e}"))?;
+                        .context("gRPC connect attempt failed")?;
 
-                    Ok::<Channel, String>(ch)
+                    Ok::<Channel, anyhow::Error>(ch)
                 };
 
                 let channel = match timeout(Duration::from_secs(10), connect_fut).await {
@@ -165,7 +176,7 @@ impl GrpcManager {
                         ch
                     }
                     Ok(Err(e)) => {
-                        warn!("gRPC connect failed: {}", e);
+                        warn!("gRPC connect failed: {:?}", e);
                         sleep(Duration::from_millis(backoff_ms)).await;
                         backoff_ms = (backoff_ms.saturating_mul(2)).min(backoff_max);
                         continue;
@@ -350,12 +361,4 @@ async fn try_load_and_store(
 
 fn bytes_eq(a: &[u8], b: &[u8]) -> bool {
     a == b
-}
-
-fn looks_like_pem(bytes: &[u8]) -> bool {
-    let s = match std::str::from_utf8(bytes) {
-        Ok(s) => s,
-        Err(_) => return false,
-    };
-    s.contains("-----BEGIN CERTIFICATE-----")
 }

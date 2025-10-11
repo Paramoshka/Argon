@@ -1,5 +1,5 @@
 use crate::AppState;
-use crate::snapshot::BackendProtocol;
+use crate::snapshot::{BackendProtocol, SelectedEndpoint};
 use bytes::Bytes;
 use http::uri::{Authority, PathAndQuery};
 use http::{HeaderMap, HeaderName, HeaderValue, StatusCode, Uri, Version, header};
@@ -9,6 +9,8 @@ use hyper::body::Incoming;
 use hyper::{Request, Response};
 use std::convert::Infallible;
 use std::str::FromStr;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 use tokio_util::future::FutureExt;
 
@@ -78,13 +80,19 @@ pub async fn proxy_handler(
     };
 
     // <--Select LB algorithm-->
-    let ep = match route_table.get_endpoint(rule.cluster.as_str()) {
+    let selection = match route_table.get_endpoint(rule.cluster.as_str()) {
         Some(e) => e,
         None => {
             tracing::error!(cluster=%rule.cluster, "endpoint not found");
             return Ok(text(StatusCode::BAD_GATEWAY, "endpoint not found"));
         }
     };
+
+    let SelectedEndpoint {
+        endpoint: ep,
+        counter,
+    } = selection;
+    let _active_counter = ActiveConnGuard::new(counter);
 
     // handle req
     handle_req_upstream(
@@ -199,6 +207,27 @@ fn add_forward_headers(h: &mut http::HeaderMap, is_tls: bool, original_host: &st
     if !h.contains_key(HeaderName::from_static("x-forwarded-host")) {
         if let Ok(v) = HeaderValue::from_str(original_host) {
             let _ = h.insert(HeaderName::from_static("x-forwarded-host"), v);
+        }
+    }
+}
+
+struct ActiveConnGuard {
+    counter: Option<Arc<AtomicUsize>>,
+}
+
+impl ActiveConnGuard {
+    fn new(counter: Option<Arc<AtomicUsize>>) -> Self {
+        if let Some(ref c) = counter {
+            c.fetch_add(1, Ordering::Relaxed);
+        }
+        Self { counter }
+    }
+}
+
+impl Drop for ActiveConnGuard {
+    fn drop(&mut self) {
+        if let Some(ref c) = self.counter {
+            c.fetch_sub(1, Ordering::Relaxed);
         }
     }
 }

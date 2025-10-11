@@ -27,6 +27,7 @@ rustls-pemfile = { version = "2.2.0"}
 rustls = { version = "0.23.32", features = ["ring"] }
 num_cpus = "1.17.0"
 hyper-rustls = {version = "0.27.7", features = ["http2", "ring"]}
+dashmap = {version = "6.1.0"}
 # prost-types = "0.13"
 
 [build-dependencies]

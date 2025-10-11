@@ -5,6 +5,8 @@ use hyper_util::client::legacy::Client;
 use hyper_util::client::legacy::connect::HttpConnector;
 use hyper_util::rt::{TokioExecutor, TokioTimer};
 use std::time::Duration;
+use rustls::Side::Server;
+use tokio;
 
 #[derive(Clone, Debug)]
 pub struct ClientPool {

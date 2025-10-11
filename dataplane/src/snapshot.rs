@@ -1,10 +1,14 @@
 use crate::argon_config::{Endpoint, Snapshot};
+use arc_swap::ArcSwap;
+use dashmap::DashMap;
 use std::cmp::PartialEq;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-#[derive(Clone, Debug)]
+use crate::argon_config::{Endpoint, Snapshot};
+
+#[derive(Clone, Debug, Eq, PartialEq, Hash)]
 pub struct RouteRule {
     path: String,
     path_type: PathType,
@@ -22,6 +26,7 @@ pub struct ClusterRule {
     pub retries: i32,
     pub backend_protocol: BackendProtocol,
     rr_cursor: Arc<AtomicUsize>,
+    least_conn_cursor: Arc<DashMap<EndpointKey, Arc<AtomicUsize>>>,
 }
 
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
@@ -42,12 +47,14 @@ impl PathType {
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 enum LBPolicy {
     RoundRobin,
+    LeastConn,
 }
 
 impl LBPolicy {
     fn parse(s: &str) -> Option<Self> {
         match s {
             "RoundRobin" => Some(LBPolicy::RoundRobin),
+            "LeastConn" => Some(LBPolicy::LeastConn),
             _ => None,
         }
     }
@@ -100,15 +107,17 @@ impl RouteTable {
                 .unwrap_or_else(|| BackendProtocol::H1);
 
             if let Some(lb) = LBPolicy::parse(&cluster.lb_policy) {
+                let counters = EndpointKey::build_map(&cluster.endpoints);
                 clusters
                     .entry(cluster.name.to_ascii_lowercase())
                     .insert_entry(Arc::from(ClusterRule {
                         name: "".to_string(), // maybe remove ?
-                        lb_policy: LBPolicy::RoundRobin,
+                        lb_policy: lb,
                         endpoints: cluster.endpoints.clone(),
                         timeout_ms: cluster.timeout_ms,
                         retries: cluster.retries,
                         rr_cursor: Arc::new(AtomicUsize::new(0)),
+                        least_conn_cursor: counters,
                         backend_protocol: bp,
                     }));
             }
@@ -183,12 +192,11 @@ impl RouteTable {
     }
 
     // get endpoint by balance algorithm
-    pub fn get_endpoint(&self, cluster_name: &str) -> Option<Endpoint> {
+    pub fn get_endpoint(&self, cluster_name: &str) -> Option<SelectedEndpoint> {
         let cluster = self.clusters.get(cluster_name)?;
-        // println!("Cluster {} found in path {:?}", cluster_name, cluster);
         match cluster.lb_policy {
             LBPolicy::RoundRobin => self.round_robin(cluster),
-            _ => Some(cluster.endpoints.first()?.clone()),
+            LBPolicy::LeastConn => self.least_conn(cluster),
         }
     }
 
@@ -199,12 +207,66 @@ impl RouteTable {
     }
 
     // RoundRobin algorithm
-    fn round_robin(&self, cluster: &ClusterRule) -> Option<Endpoint> {
+    fn round_robin(&self, cluster: &ClusterRule) -> Option<SelectedEndpoint> {
         let len = cluster.endpoints.len();
         if len == 0 {
             return None;
         }
         let idx = cluster.rr_cursor.fetch_add(1, Ordering::Relaxed) % len;
-        Some(cluster.endpoints[idx].clone())
+        let endpoint = cluster.endpoints[idx].clone();
+        let counter = cluster.counter_for_index(idx);
+        Some(SelectedEndpoint { endpoint, counter })
+    }
+
+    // LeastConn algorithm
+    fn least_conn(&self, cluster: &ClusterRule) -> Option<SelectedEndpoint> {
+        let len = cluster.endpoints.len();
+        if len == 0 {
+            return None;
+        }
+
+        let min = cluster
+            .least_conn_cursor
+            .as_ref()
+            .iter()
+            .min_by_key(|entry| entry.value().load(Ordering::Relaxed));
+
+        if let Some(entry) = min {
+            let idx = entry.key().index;
+            if let Some(endpoint) = cluster.endpoints.get(idx).cloned() {
+                let counter = Some(entry.value().clone());
+                return Some(SelectedEndpoint { endpoint, counter });
+            }
+        }
+
+        self.round_robin(cluster)
+    }
+}
+impl ClusterRule {
+    fn counter_for_index(&self, idx: usize) -> Option<Arc<AtomicUsize>> {
+        let endpoint = self.endpoints.get(idx)?;
+        let key = EndpointKey::from_endpoint(idx, endpoint);
+        self.least_conn_cursor
+            .get(&key)
+            .map(|entry| entry.value().clone())
+    }
+}
+
+impl EndpointKey {
+    fn from_endpoint(index: usize, endpoint: &Endpoint) -> Self {
+        Self {
+            address: endpoint.address.clone(),
+            port: endpoint.port,
+            index,
+        }
+    }
+
+    fn build_map(endpoints: &[Endpoint]) -> Arc<DashMap<EndpointKey, Arc<AtomicUsize>>> {
+        let counters = DashMap::with_capacity(endpoints.len());
+        for (index, endpoint) in endpoints.iter().enumerate() {
+            let key = EndpointKey::from_endpoint(index, endpoint);
+            counters.insert(key, Arc::new(AtomicUsize::new(0)));
+        }
+        Arc::new(counters)
     }
 }

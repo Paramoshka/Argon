@@ -39,6 +39,22 @@ Valid range: 1–120000 ms (values outside are clamped or rejected; see controll
 On timeout, the proxy returns 504 Gateway Timeout to the client.
 
 ---
+> argon.github.io/lb-algorithm
+
+Controls how Argon distributes requests across endpoints within a backend cluster.
+
+Allowed values (case-insensitive):
+
+| Value          | Description                                                             |
+| -------------- | ----------------------------------------------------------------------- |
+| `roundrobin`   | Default. Rotates requests evenly across all healthy endpoints.          |
+| `leastconn`    | Routes each request to the endpoint with the fewest in-flight requests. |
+
+Default: `roundrobin`.
+
+If the value is missing, misspelled, or unsupported, the controller keeps using round-robin.
+
+---
 ### Examples
 HTTP/1.1 over TLS (backend speaks HTTPS), 15s timeout
 ```yaml

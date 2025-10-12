@@ -1,20 +1,17 @@
 use anyhow::{Context, anyhow};
-use arc_swap::ArcSwap;
-use arc_swap::ArcSwap;
 use http::Uri;
 use rustls::sign::CertifiedKey;
-use rustls::sign::CertifiedKey;
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::io::AsyncWriteExt;
-use tokio::sync::RwLock;
 use tokio::sync::{Notify, RwLock};
 use tokio::time::{sleep, timeout};
 use tokio_util::sync::CancellationToken;
 use tonic::transport::{Channel, ClientTlsConfig, Identity};
 use tracing::{info, warn};
+
+use arc_swap::ArcSwap;
+use std::path::{Path, PathBuf};
 
 mod argon_config {
     include!("argon.config.rs");

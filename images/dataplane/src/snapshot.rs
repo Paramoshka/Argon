@@ -1,4 +1,3 @@
-use arc_swap::ArcSwap;
 use dashmap::DashMap;
 use std::cmp::PartialEq;
 use std::collections::HashMap;
@@ -41,7 +40,7 @@ pub struct ClusterRule {
     least_conn_cursor: Arc<DashMap<EndpointKey, Arc<AtomicUsize>>>,
 }
 
-#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+#[derive(Copy, Clone, Eq, PartialEq, Debug, Hash)]
 enum PathType {
     Prefix,
     Exact,

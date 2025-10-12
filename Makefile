@@ -110,11 +110,11 @@ lint-config: golangci-lint ## Verify golangci-lint linter configuration
 
 .PHONY: build
 build: manifests generate fmt vet ## Build manager binary.
-	go build -o bin/manager cmd/main.go
+	go build -o bin/manager images/controlplane/cmd/main.go
 
 .PHONY: run
 run: manifests generate fmt vet ## Run a controller from your host.
-	go run ./cmd/main.go
+	go run ./images/controlplane/cmd/main.go
 
 # If you wish to build the manager image targeting other platforms you can use the --platform flag.
 # (i.e. docker build --platform linux/arm64). However, you must enable docker buildKit for it.
@@ -236,11 +236,11 @@ proto-gen:
 	@echo "Generating gRPC code..."
 	@mkdir -p internal/gen/argonpb
 	protoc \
-		-I dataplane/proto \
+		-I images/dataplane/proto \
 		--go_out=internal/gen/argonpb --go_opt=paths=source_relative \
 		--go-grpc_out=internal/gen/argonpb --go-grpc_opt=paths=source_relative \
 		argon/config.proto
-	cd dataplane && cargo build
+	cd images/dataplane && cargo build
 	@echo "✅ Proto generation done."
 
 .PHONY: helm-pack

@@ -8,11 +8,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /workspace
 
-COPY dataplane/Cargo.toml Cargo.toml
-COPY dataplane/Cargo.lock Cargo.lock
+COPY images/dataplane/Cargo.toml Cargo.toml
+COPY images/dataplane/Cargo.lock Cargo.lock
 RUN mkdir src && echo "fn main(){}" > src/main.rs && cargo build --release || true && rm -rf src
 
-COPY dataplane/src src/
+COPY images/dataplane/src src/
 
 RUN set -eux; \
   case "${TARGETARCH:-amd64}" in \

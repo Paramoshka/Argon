@@ -28,8 +28,9 @@ import (
 	"strconv"
 	"time"
 
-	. "argon.github.io/ingress/internal/grpc"
-	. "argon.github.io/ingress/internal/model"
+	. "argon/internal/grpc"
+	. "argon/internal/model"
+
 	corev1 "k8s.io/api/core/v1"
 	discoveryv1 "k8s.io/api/discovery/v1"
 	networkingv1 "k8s.io/api/networking/v1"
@@ -117,6 +118,16 @@ func (r *ArgonConfigReconciler) parseEndpoints(ctx context.Context, ingList *net
 		backendTimeout := 3000
 		if _, exists := annotations[BACKEND_TIMEOUT_ANNOTATION]; exists {
 			backendTimeout, _ = strconv.Atoi(annotations[BACKEND_TIMEOUT_ANNOTATION])
+		}
+
+		var lbAlgorithm LBPolicy
+		if alg, exists := annotations[BACKEND_LB_ALGORITHM_ANNOTATION]; exists {
+			switch alg {
+			case string(LBLeastConn):
+				lbAlgorithm = LBLeastConn
+			default:
+				lbAlgorithm = LBRoundRobin
+			}
 		}
 
 		backendRetries := 1 // todo make retries for backend
@@ -239,6 +250,7 @@ func (r *ArgonConfigReconciler) parseEndpoints(ctx context.Context, ingList *net
 					BackendProtocol: backendProtocol,
 					Retries:         int32(backendRetries),
 					TimeoutMs:       int32(backendTimeout),
+					LBAlgorithm:     lbAlgorithm,
 				}
 			}
 
@@ -280,7 +292,7 @@ func (r *ArgonConfigReconciler) ToSnapshot(targets []TargetProxy) Snapshot {
 
 			cluster := Cluster{
 				Name:            clusterName,
-				LBPolicy:        LBRoundRobin,
+				LBPolicy:        te.LBAlgorithm,
 				Endpoints:       make([]Endpoint, 0, len(te.Addresses)),
 				TimeoutMs:       te.TimeoutMs,
 				Retries:         te.Retries,

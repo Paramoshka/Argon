@@ -3,7 +3,7 @@ package grpc
 import (
 	"sync"
 
-	"argon.github.io/ingress/internal/model"
+	"argon/internal/model"
 )
 
 type StreamHub struct {

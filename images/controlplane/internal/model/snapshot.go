@@ -91,9 +91,10 @@ type Cluster struct {
 	LBPolicy  LBPolicy   `json:"lbPolicy,omitempty"` // RR
 	Endpoints []Endpoint `json:"endpoints"`
 	// retries/timeouts/health-check
-	TimeoutMs       int32  `json:"timeoutMs,omitempty"`
-	Retries         int32  `json:"retries,omitempty"`
-	BackendProtocol string `json:"backendProtocol,omitempty"`
+	TimeoutMs       int32    `json:"timeoutMs,omitempty"`
+	Retries         int32    `json:"retries,omitempty"`
+	BackendProtocol string   `json:"backendProtocol,omitempty"`
+	LBAlgorithm     LBPolicy `json:"lbAlgotihm,omitempty"`
 }
 
 type LBPolicy string
@@ -101,7 +102,7 @@ type LBPolicy string
 const (
 	LBRoundRobin LBPolicy = "RoundRobin"
 	LBRandom     LBPolicy = "Random"
-	LBLeastConn  LBPolicy = "LeastConnections"
+	LBLeastConn  LBPolicy = "LeastConn"
 )
 
 // Endpoint — реальный upstream адрес
@@ -152,4 +153,5 @@ type TargetEndpoint struct {
 	PathType        *v1networking.PathType
 	Retries         int32
 	TimeoutMs       int32
+	LBAlgorithm     LBPolicy
 }

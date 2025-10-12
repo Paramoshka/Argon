@@ -97,7 +97,7 @@ pub fn certificates_from_snap(snapshot: &Snapshot) -> HashMap<String, Arc<Certif
 }
 
 impl Debug for DynResolver {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, _f: &mut Formatter<'_>) -> std::fmt::Result {
         Ok(())
     }
 }

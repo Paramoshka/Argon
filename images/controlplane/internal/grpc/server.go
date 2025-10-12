@@ -9,8 +9,9 @@ import (
 	"sort"
 	"strings"
 
-	argonpb "argon.github.io/ingress/internal/gen/argonpb/argon"
-	. "argon.github.io/ingress/internal/model"
+	argonpb "argon/internal/gen/argonpb/argon"
+	"argon/internal/model"
+
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/keepalive"
@@ -140,7 +141,7 @@ func (s *Server) RunGRPC(ctx context.Context) error {
 
 // ===== model -> pb =====
 
-func toPbSnapshot(in Snapshot) *argonpb.Snapshot {
+func toPbSnapshot(in model.Snapshot) *argonpb.Snapshot {
 	logger := log.FromContext(context.Background()) // ctrl-runtime logger
 
 	pb := &argonpb.Snapshot{

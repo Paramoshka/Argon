@@ -120,12 +120,15 @@ func (r *ArgonConfigReconciler) parseEndpoints(ctx context.Context, ingList *net
 			backendTimeout, _ = strconv.Atoi(annotations[BACKEND_TIMEOUT_ANNOTATION])
 		}
 
-		var lbAlgorithm LBPolicy
+		lbAlgorithm := LBRoundRobin
 		if alg, exists := annotations[BACKEND_LB_ALGORITHM_ANNOTATION]; exists {
-			switch alg {
-			case string(LBLeastConn):
+			switch LBPolicy(alg) {
+			case LBLeastConn:
 				lbAlgorithm = LBLeastConn
+			case LBRoundRobin:
+				lbAlgorithm = LBRoundRobin
 			default:
+				logger.Info("unknown lb algorithm annotation, falling back to RoundRobin", "value", alg)
 				lbAlgorithm = LBRoundRobin
 			}
 		}

@@ -1,4 +1,3 @@
-use crate::argon_config::{Endpoint, Snapshot};
 use arc_swap::ArcSwap;
 use dashmap::DashMap;
 use std::cmp::PartialEq;
@@ -14,6 +13,19 @@ pub struct RouteRule {
     path_type: PathType,
     pub cluster: String,
     priority: i32,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct EndpointKey {
+    address: String,
+    port: i32,
+    index: usize,
+}
+
+#[derive(Clone, Debug)]
+pub struct SelectedEndpoint {
+    pub endpoint: Endpoint,
+    pub counter: Option<Arc<AtomicUsize>>,
 }
 
 #[derive(Clone, Debug)]
@@ -242,6 +254,7 @@ impl RouteTable {
         self.round_robin(cluster)
     }
 }
+
 impl ClusterRule {
     fn counter_for_index(&self, idx: usize) -> Option<Arc<AtomicUsize>> {
         let endpoint = self.endpoints.get(idx)?;

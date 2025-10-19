@@ -23,7 +23,6 @@ import (
 	"encoding/hex"
 	"encoding/pem"
 	"fmt"
-	"slices"
 	"sort"
 	"strconv"
 	"time"
@@ -118,6 +117,16 @@ func (r *ArgonConfigReconciler) parseEndpoints(ctx context.Context, ingList *net
 		backendTimeout := 3000
 		if _, exists := annotations[BACKEND_TIMEOUT_ANNOTATION]; exists {
 			backendTimeout, _ = strconv.Atoi(annotations[BACKEND_TIMEOUT_ANNOTATION])
+		}
+
+		var reqheaders []RewriteHeaders
+		if rawReqHeaders, ok := annotations[REQUEST_HEADERS_ANNOTATION]; ok {
+			parsed, err := getRequestHeaders(rawReqHeaders)
+			if err != nil {
+				logger.Error(err, "failed to parse request headers annotation", "annotation", rawReqHeaders)
+			} else {
+				reqheaders = parsed
+			}
 		}
 
 		lbAlgorithm := LBRoundRobin
@@ -254,6 +263,7 @@ func (r *ArgonConfigReconciler) parseEndpoints(ctx context.Context, ingList *net
 					Retries:         int32(backendRetries),
 					TimeoutMs:       int32(backendTimeout),
 					LBAlgorithm:     lbAlgorithm,
+					RewriteHeaders:  reqheaders,
 				}
 			}
 
@@ -300,6 +310,7 @@ func (r *ArgonConfigReconciler) ToSnapshot(targets []TargetProxy) Snapshot {
 				TimeoutMs:       te.TimeoutMs,
 				Retries:         te.Retries,
 				BackendProtocol: te.BackendProtocol,
+				RewriteHeaders:  te.RewriteHeaders,
 			}
 			for _, a := range te.Addresses {
 				cluster.Endpoints = append(cluster.Endpoints, Endpoint{
@@ -322,66 +333,4 @@ func (r *ArgonConfigReconciler) ToSnapshot(targets []TargetProxy) Snapshot {
 	snap.Version = hex.EncodeToString(sum[:])
 
 	return snap
-}
-
-func portProtocol(slice discoveryv1.EndpointSlice, matched *int32) corev1.Protocol {
-	for _, sp := range slice.Ports {
-		if sp.Port == nil || matched == nil || *sp.Port != *matched {
-			continue
-		}
-
-		if sp.Protocol != nil {
-			return *sp.Protocol
-		}
-	}
-
-	return corev1.ProtocolTCP
-}
-
-func appendUnique(dst []string, src ...string) []string {
-	for _, addr := range src {
-		if !slices.Contains(dst, addr) {
-			dst = append(dst, addr)
-		}
-	}
-
-	return dst
-}
-
-func resolveServicePortName(ctx context.Context, c client.Client, ns, svcName string, be *networkingv1.IngressBackend) (string, error) {
-	if be == nil || be.Service == nil {
-		return "", nil
-	}
-	var svc corev1.Service
-	if err := c.Get(ctx, client.ObjectKey{Namespace: ns, Name: svcName}, &svc); err != nil {
-		return "", err
-	}
-
-	if be.Service.Port.Name != "" {
-		return be.Service.Port.Name, nil
-	}
-
-	if num := be.Service.Port.Number; num != 0 {
-		for _, p := range svc.Spec.Ports {
-			if p.Port == num {
-				return p.Name, nil
-			}
-		}
-	}
-	return "", nil
-}
-
-func matchSlicePortByName(slice discoveryv1.EndpointSlice, portName string) *int32 {
-	for _, sp := range slice.Ports {
-		if sp.Port == nil {
-			continue
-		}
-		if portName == "" {
-			return sp.Port
-		}
-		if sp.Name != nil && *sp.Name == portName {
-			return sp.Port
-		}
-	}
-	return nil
 }

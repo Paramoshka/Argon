@@ -141,6 +141,66 @@ func (x *Endpoint) GetRegion() string {
 	return ""
 }
 
+type HeaderRewrite struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	Mode          string                 `protobuf:"bytes,2,opt,name=mode,proto3" json:"mode,omitempty"`
+	Value         string                 `protobuf:"bytes,3,opt,name=value,proto3" json:"value,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *HeaderRewrite) Reset() {
+	*x = HeaderRewrite{}
+	mi := &file_argon_config_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *HeaderRewrite) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*HeaderRewrite) ProtoMessage() {}
+
+func (x *HeaderRewrite) ProtoReflect() protoreflect.Message {
+	mi := &file_argon_config_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use HeaderRewrite.ProtoReflect.Descriptor instead.
+func (*HeaderRewrite) Descriptor() ([]byte, []int) {
+	return file_argon_config_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *HeaderRewrite) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *HeaderRewrite) GetMode() string {
+	if x != nil {
+		return x.Mode
+	}
+	return ""
+}
+
+func (x *HeaderRewrite) GetValue() string {
+	if x != nil {
+		return x.Value
+	}
+	return ""
+}
+
 type Cluster struct {
 	state           protoimpl.MessageState `protogen:"open.v1"`
 	Name            string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
@@ -149,13 +209,14 @@ type Cluster struct {
 	TimeoutMs       int32                  `protobuf:"varint,4,opt,name=timeout_ms,json=timeoutMs,proto3" json:"timeout_ms,omitempty"`
 	Retries         int32                  `protobuf:"varint,5,opt,name=retries,proto3" json:"retries,omitempty"`
 	BackendProtocol string                 `protobuf:"bytes,6,opt,name=backend_protocol,json=backendProtocol,proto3" json:"backend_protocol,omitempty"`
+	RequestHeaders  []*HeaderRewrite       `protobuf:"bytes,7,rep,name=request_headers,json=requestHeaders,proto3" json:"request_headers,omitempty"`
 	unknownFields   protoimpl.UnknownFields
 	sizeCache       protoimpl.SizeCache
 }
 
 func (x *Cluster) Reset() {
 	*x = Cluster{}
-	mi := &file_argon_config_proto_msgTypes[2]
+	mi := &file_argon_config_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -167,7 +228,7 @@ func (x *Cluster) String() string {
 func (*Cluster) ProtoMessage() {}
 
 func (x *Cluster) ProtoReflect() protoreflect.Message {
-	mi := &file_argon_config_proto_msgTypes[2]
+	mi := &file_argon_config_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -180,7 +241,7 @@ func (x *Cluster) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Cluster.ProtoReflect.Descriptor instead.
 func (*Cluster) Descriptor() ([]byte, []int) {
-	return file_argon_config_proto_rawDescGZIP(), []int{2}
+	return file_argon_config_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *Cluster) GetName() string {
@@ -225,6 +286,13 @@ func (x *Cluster) GetBackendProtocol() string {
 	return ""
 }
 
+func (x *Cluster) GetRequestHeaders() []*HeaderRewrite {
+	if x != nil {
+		return x.RequestHeaders
+	}
+	return nil
+}
+
 type Route struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Host          string                 `protobuf:"bytes,1,opt,name=host,proto3" json:"host,omitempty"`
@@ -238,7 +306,7 @@ type Route struct {
 
 func (x *Route) Reset() {
 	*x = Route{}
-	mi := &file_argon_config_proto_msgTypes[3]
+	mi := &file_argon_config_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -250,7 +318,7 @@ func (x *Route) String() string {
 func (*Route) ProtoMessage() {}
 
 func (x *Route) ProtoReflect() protoreflect.Message {
-	mi := &file_argon_config_proto_msgTypes[3]
+	mi := &file_argon_config_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -263,7 +331,7 @@ func (x *Route) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Route.ProtoReflect.Descriptor instead.
 func (*Route) Descriptor() ([]byte, []int) {
-	return file_argon_config_proto_rawDescGZIP(), []int{3}
+	return file_argon_config_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *Route) GetHost() string {
@@ -315,7 +383,7 @@ type ServerTlsBundle struct {
 
 func (x *ServerTlsBundle) Reset() {
 	*x = ServerTlsBundle{}
-	mi := &file_argon_config_proto_msgTypes[4]
+	mi := &file_argon_config_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -327,7 +395,7 @@ func (x *ServerTlsBundle) String() string {
 func (*ServerTlsBundle) ProtoMessage() {}
 
 func (x *ServerTlsBundle) ProtoReflect() protoreflect.Message {
-	mi := &file_argon_config_proto_msgTypes[4]
+	mi := &file_argon_config_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -340,7 +408,7 @@ func (x *ServerTlsBundle) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ServerTlsBundle.ProtoReflect.Descriptor instead.
 func (*ServerTlsBundle) Descriptor() ([]byte, []int) {
-	return file_argon_config_proto_rawDescGZIP(), []int{4}
+	return file_argon_config_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *ServerTlsBundle) GetName() string {
@@ -401,7 +469,7 @@ type Snapshot struct {
 
 func (x *Snapshot) Reset() {
 	*x = Snapshot{}
-	mi := &file_argon_config_proto_msgTypes[5]
+	mi := &file_argon_config_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -413,7 +481,7 @@ func (x *Snapshot) String() string {
 func (*Snapshot) ProtoMessage() {}
 
 func (x *Snapshot) ProtoReflect() protoreflect.Message {
-	mi := &file_argon_config_proto_msgTypes[5]
+	mi := &file_argon_config_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -426,7 +494,7 @@ func (x *Snapshot) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Snapshot.ProtoReflect.Descriptor instead.
 func (*Snapshot) Descriptor() ([]byte, []int) {
-	return file_argon_config_proto_rawDescGZIP(), []int{5}
+	return file_argon_config_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *Snapshot) GetVersion() string {
@@ -497,7 +565,11 @@ const file_argon_config_proto_rawDesc = "" +
 	"\x04port\x18\x02 \x01(\x05R\x04port\x12\x16\n" +
 	"\x06weight\x18\x03 \x01(\x05R\x06weight\x12\x12\n" +
 	"\x04zone\x18\x04 \x01(\tR\x04zone\x12\x16\n" +
-	"\x06region\x18\x05 \x01(\tR\x06region\"\xd4\x01\n" +
+	"\x06region\x18\x05 \x01(\tR\x06region\"M\n" +
+	"\rHeaderRewrite\x12\x12\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x12\x12\n" +
+	"\x04mode\x18\x02 \x01(\tR\x04mode\x12\x14\n" +
+	"\x05value\x18\x03 \x01(\tR\x05value\"\x9a\x02\n" +
 	"\aCluster\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x1b\n" +
 	"\tlb_policy\x18\x02 \x01(\tR\blbPolicy\x124\n" +
@@ -505,7 +577,8 @@ const file_argon_config_proto_rawDesc = "" +
 	"\n" +
 	"timeout_ms\x18\x04 \x01(\x05R\ttimeoutMs\x12\x18\n" +
 	"\aretries\x18\x05 \x01(\x05R\aretries\x12)\n" +
-	"\x10backend_protocol\x18\x06 \x01(\tR\x0fbackendProtocol\"\x82\x01\n" +
+	"\x10backend_protocol\x18\x06 \x01(\tR\x0fbackendProtocol\x12D\n" +
+	"\x0frequest_headers\x18\a \x03(\v2\x1b.argon.config.HeaderRewriteR\x0erequestHeaders\"\x82\x01\n" +
 	"\x05Route\x12\x12\n" +
 	"\x04host\x18\x01 \x01(\tR\x04host\x12\x12\n" +
 	"\x04path\x18\x02 \x01(\tR\x04path\x12\x1b\n" +
@@ -548,29 +621,31 @@ func file_argon_config_proto_rawDescGZIP() []byte {
 	return file_argon_config_proto_rawDescData
 }
 
-var file_argon_config_proto_msgTypes = make([]protoimpl.MessageInfo, 7)
+var file_argon_config_proto_msgTypes = make([]protoimpl.MessageInfo, 8)
 var file_argon_config_proto_goTypes = []any{
 	(*WatchRequest)(nil),    // 0: argon.config.WatchRequest
 	(*Endpoint)(nil),        // 1: argon.config.Endpoint
-	(*Cluster)(nil),         // 2: argon.config.Cluster
-	(*Route)(nil),           // 3: argon.config.Route
-	(*ServerTlsBundle)(nil), // 4: argon.config.ServerTlsBundle
-	(*Snapshot)(nil),        // 5: argon.config.Snapshot
-	nil,                     // 6: argon.config.Snapshot.ResourceVersionsEntry
+	(*HeaderRewrite)(nil),   // 2: argon.config.HeaderRewrite
+	(*Cluster)(nil),         // 3: argon.config.Cluster
+	(*Route)(nil),           // 4: argon.config.Route
+	(*ServerTlsBundle)(nil), // 5: argon.config.ServerTlsBundle
+	(*Snapshot)(nil),        // 6: argon.config.Snapshot
+	nil,                     // 7: argon.config.Snapshot.ResourceVersionsEntry
 }
 var file_argon_config_proto_depIdxs = []int32{
 	1, // 0: argon.config.Cluster.endpoints:type_name -> argon.config.Endpoint
-	6, // 1: argon.config.Snapshot.resource_versions:type_name -> argon.config.Snapshot.ResourceVersionsEntry
-	3, // 2: argon.config.Snapshot.routes:type_name -> argon.config.Route
-	2, // 3: argon.config.Snapshot.clusters:type_name -> argon.config.Cluster
-	4, // 4: argon.config.Snapshot.server_tls:type_name -> argon.config.ServerTlsBundle
-	0, // 5: argon.config.ConfigDiscovery.Watch:input_type -> argon.config.WatchRequest
-	5, // 6: argon.config.ConfigDiscovery.Watch:output_type -> argon.config.Snapshot
-	6, // [6:7] is the sub-list for method output_type
-	5, // [5:6] is the sub-list for method input_type
-	5, // [5:5] is the sub-list for extension type_name
-	5, // [5:5] is the sub-list for extension extendee
-	0, // [0:5] is the sub-list for field type_name
+	2, // 1: argon.config.Cluster.request_headers:type_name -> argon.config.HeaderRewrite
+	7, // 2: argon.config.Snapshot.resource_versions:type_name -> argon.config.Snapshot.ResourceVersionsEntry
+	4, // 3: argon.config.Snapshot.routes:type_name -> argon.config.Route
+	3, // 4: argon.config.Snapshot.clusters:type_name -> argon.config.Cluster
+	5, // 5: argon.config.Snapshot.server_tls:type_name -> argon.config.ServerTlsBundle
+	0, // 6: argon.config.ConfigDiscovery.Watch:input_type -> argon.config.WatchRequest
+	6, // 7: argon.config.ConfigDiscovery.Watch:output_type -> argon.config.Snapshot
+	7, // [7:8] is the sub-list for method output_type
+	6, // [6:7] is the sub-list for method input_type
+	6, // [6:6] is the sub-list for extension type_name
+	6, // [6:6] is the sub-list for extension extendee
+	0, // [0:6] is the sub-list for field type_name
 }
 
 func init() { file_argon_config_proto_init() }
@@ -584,7 +659,7 @@ func file_argon_config_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_argon_config_proto_rawDesc), len(file_argon_config_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   7,
+			NumMessages:   8,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

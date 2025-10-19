@@ -19,6 +19,15 @@ pub struct Endpoint {
     pub region: ::prost::alloc::string::String,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
+pub struct HeaderRewrite {
+    #[prost(string, tag = "1")]
+    pub name: ::prost::alloc::string::String,
+    #[prost(string, tag = "2")]
+    pub mode: ::prost::alloc::string::String,
+    #[prost(string, tag = "3")]
+    pub value: ::prost::alloc::string::String,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct Cluster {
     #[prost(string, tag = "1")]
     pub name: ::prost::alloc::string::String,
@@ -33,6 +42,8 @@ pub struct Cluster {
     pub retries: i32,
     #[prost(string, tag = "6")]
     pub backend_protocol: ::prost::alloc::string::String,
+    #[prost(message, repeated, tag = "7")]
+    pub request_headers: ::prost::alloc::vec::Vec<HeaderRewrite>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct Route {

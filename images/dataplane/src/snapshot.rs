@@ -1,10 +1,12 @@
 use dashmap::DashMap;
+use http::HeaderName;
 use std::cmp::PartialEq;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use crate::argon_config::{Endpoint, Snapshot};
+use crate::argon_config::{Endpoint, HeaderRewrite, Snapshot};
+use tracing::warn;
 
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
 pub struct RouteRule {
@@ -36,6 +38,7 @@ pub struct ClusterRule {
     pub timeout_ms: i32,
     pub retries: i32,
     pub backend_protocol: BackendProtocol,
+    pub request_headers: Arc<Vec<HeaderRewriteRule>>,
     rr_cursor: Arc<AtomicUsize>,
     least_conn_cursor: Arc<DashMap<EndpointKey, Arc<AtomicUsize>>>,
 }
@@ -91,6 +94,31 @@ impl BackendProtocol {
     }
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum HeaderRewriteMode {
+    Set,
+    Append,
+    Remove,
+}
+
+impl HeaderRewriteMode {
+    fn parse(mode: &str) -> Option<Self> {
+        match mode.to_ascii_lowercase().as_str() {
+            "set" => Some(HeaderRewriteMode::Set),
+            "append" => Some(HeaderRewriteMode::Append),
+            "remove" => Some(HeaderRewriteMode::Remove),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct HeaderRewriteRule {
+    pub name: HeaderName,
+    pub value: Option<String>,
+    pub mode: HeaderRewriteMode,
+}
+
 #[derive(Clone)]
 pub struct RouteTable {
     version: String,
@@ -119,6 +147,7 @@ impl RouteTable {
 
             if let Some(lb) = LBPolicy::parse(&cluster.lb_policy) {
                 let counters = EndpointKey::build_map(&cluster.endpoints);
+                let request_headers = build_header_rewrites(&cluster.request_headers);
                 clusters
                     .entry(cluster.name.to_ascii_lowercase())
                     .insert_entry(Arc::from(ClusterRule {
@@ -130,6 +159,7 @@ impl RouteTable {
                         rr_cursor: Arc::new(AtomicUsize::new(0)),
                         least_conn_cursor: counters,
                         backend_protocol: bp,
+                        request_headers,
                     }));
             }
         }
@@ -281,4 +311,38 @@ impl EndpointKey {
         }
         Arc::new(counters)
     }
+}
+
+fn build_header_rewrites(items: &[HeaderRewrite]) -> Arc<Vec<HeaderRewriteRule>> {
+    let mut rewrites = Vec::with_capacity(items.len());
+    for item in items {
+        let name = item.name.trim();
+        if name.is_empty() {
+            warn!("ignoring request header rewrite with empty name");
+            continue;
+        }
+
+        let Some(mode) = HeaderRewriteMode::parse(item.mode.as_str()) else {
+            warn!(mode = %item.mode, header = %item.name, "ignoring unsupported header rewrite mode");
+            continue;
+        };
+
+        let value = if matches!(mode, HeaderRewriteMode::Remove) {
+            None
+        } else {
+            Some(item.value.clone())
+        };
+
+        let Ok(header_name) = HeaderName::from_bytes(name.as_bytes()) else {
+            warn!(header = %item.name, "ignoring header rewrite with invalid name");
+            continue;
+        };
+
+        rewrites.push(HeaderRewriteRule {
+            name: header_name,
+            value,
+            mode,
+        });
+    }
+    Arc::new(rewrites)
 }

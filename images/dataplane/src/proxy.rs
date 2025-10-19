@@ -1,5 +1,5 @@
 use crate::AppState;
-use crate::snapshot::{BackendProtocol, SelectedEndpoint};
+use crate::snapshot::{BackendProtocol, HeaderRewriteMode, HeaderRewriteRule, SelectedEndpoint};
 use bytes::Bytes;
 use http::uri::{Authority, PathAndQuery};
 use http::{HeaderMap, HeaderName, HeaderValue, StatusCode, Uri, Version, header};
@@ -78,6 +78,7 @@ pub async fn proxy_handler(
             return Ok(text(StatusCode::NOT_FOUND, "cluster rules not found"));
         }
     };
+    let header_rewrites = cluster_rules.request_headers.clone();
 
     // <--Select LB algorithm-->
     let selection = match route_table.get_endpoint(rule.cluster.as_str()) {
@@ -102,6 +103,10 @@ pub async fn proxy_handler(
         ep.port as u16,
         cluster_rules.backend_protocol.clone(),
     );
+
+    if !header_rewrites.is_empty() {
+        apply_header_rewrites(req.headers_mut(), header_rewrites.as_ref());
+    }
 
     // lease read lock
     drop(route_table);
@@ -207,6 +212,35 @@ fn add_forward_headers(h: &mut http::HeaderMap, is_tls: bool, original_host: &st
     if !h.contains_key(HeaderName::from_static("x-forwarded-host")) {
         if let Ok(v) = HeaderValue::from_str(original_host) {
             let _ = h.insert(HeaderName::from_static("x-forwarded-host"), v);
+        }
+    }
+}
+
+fn apply_header_rewrites(headers: &mut HeaderMap, rewrites: &[HeaderRewriteRule]) {
+    for rule in rewrites {
+        match rule.mode {
+            HeaderRewriteMode::Remove => {
+                headers.remove(&rule.name);
+            }
+            HeaderRewriteMode::Set | HeaderRewriteMode::Append => {
+                let Some(value) = &rule.value else {
+                    tracing::warn!(header = %rule.name, "missing value for header rewrite");
+                    continue;
+                };
+
+                match HeaderValue::from_str(value) {
+                    Ok(header_value) => {
+                        if matches!(rule.mode, HeaderRewriteMode::Set) {
+                            headers.insert(rule.name.clone(), header_value);
+                        } else {
+                            headers.append(rule.name.clone(), header_value);
+                        }
+                    }
+                    Err(err) => {
+                        tracing::warn!(header = %rule.name, %err, "invalid header value for rewrite");
+                    }
+                }
+            }
         }
     }
 }

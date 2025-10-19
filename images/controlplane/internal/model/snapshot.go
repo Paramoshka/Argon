@@ -91,18 +91,24 @@ type Cluster struct {
 	LBPolicy  LBPolicy   `json:"lbPolicy,omitempty"` // RR
 	Endpoints []Endpoint `json:"endpoints"`
 	// retries/timeouts/health-check
-	TimeoutMs       int32    `json:"timeoutMs,omitempty"`
-	Retries         int32    `json:"retries,omitempty"`
-	BackendProtocol string   `json:"backendProtocol,omitempty"`
-	LBAlgorithm     LBPolicy `json:"lbAlgotihm,omitempty"`
+	TimeoutMs       int32            `json:"timeoutMs,omitempty"`
+	Retries         int32            `json:"retries,omitempty"`
+	BackendProtocol string           `json:"backendProtocol,omitempty"`
+	LBAlgorithm     LBPolicy         `json:"lbAlgotihm,omitempty"`
+	RewriteHeaders  []RewriteHeaders `json:"rwHeaders"`
 }
 
 type LBPolicy string
 
+type RewriteHeaderMode string
+
 const (
-	LBRoundRobin LBPolicy = "RoundRobin"
-	LBRandom     LBPolicy = "Random"
-	LBLeastConn  LBPolicy = "LeastConn"
+	LBRoundRobin   LBPolicy          = "RoundRobin"
+	LBRandom       LBPolicy          = "Random"
+	LBLeastConn    LBPolicy          = "LeastConn"
+	RWHeaderAppend RewriteHeaderMode = "Append"
+	RWHeaderSet    RewriteHeaderMode = "Set"
+	RWHeaderRemove RewriteHeaderMode = "Remove"
 )
 
 // Endpoint — реальный upstream адрес
@@ -145,6 +151,12 @@ type TargetProxy struct {
 	SNI  TLSSecret
 }
 
+type RewriteHeaders struct {
+	Name  string            `json:"name"`
+	Mode  RewriteHeaderMode `json:"mode"`
+	Value string            `json:"value,omitempty"`
+}
+
 type TargetEndpoint struct {
 	Port            int32
 	Protocol        corev1.Protocol
@@ -154,4 +166,5 @@ type TargetEndpoint struct {
 	Retries         int32
 	TimeoutMs       int32
 	LBAlgorithm     LBPolicy
+	RewriteHeaders  []RewriteHeaders
 }

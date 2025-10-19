@@ -172,6 +172,13 @@ func toPbSnapshot(in model.Snapshot) *argonpb.Snapshot {
 				Zone: e.Zone, Region: e.Region,
 			})
 		}
+		for _, rw := range c.RewriteHeaders {
+			pc.RequestHeaders = append(pc.RequestHeaders, &argonpb.HeaderRewrite{
+				Name:  rw.Name,
+				Mode:  string(rw.Mode),
+				Value: rw.Value,
+			})
+		}
 		pb.Clusters = append(pb.Clusters, pc)
 	}
 

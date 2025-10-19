@@ -15,6 +15,12 @@ message Endpoint {
   string region  = 5;
 }
 
+message HeaderRewrite {
+  string name  = 1;
+  string mode  = 2;
+  string value = 3;
+}
+
 message Cluster {
   string name     = 1;
   string lb_policy = 2;              // "RoundRobin"...
@@ -22,6 +28,7 @@ message Cluster {
   int32 timeout_ms = 4;
   int32 retries    = 5;
   string backend_protocol =6;
+  repeated HeaderRewrite request_headers = 7;
 }
 
 message Route {

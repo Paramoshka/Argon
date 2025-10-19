@@ -1,3 +1,7 @@
+---
+title: Argon Ingress Controller
+---
+
 # Argon Ingress Controller
 
 ## Short version: a minimal, fast ingress controller split into a Go control-plane (discovers config) and a Rust data-plane (does the actual proxying). The two talk over gRPC streaming.

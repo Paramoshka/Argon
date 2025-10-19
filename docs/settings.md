@@ -55,6 +55,32 @@ Default: `roundrobin`.
 If the value is missing, misspelled, or unsupported, the controller keeps using round-robin.
 
 ---
+> argon.github.io/request-headers
+
+Status: ⏳ work in progress — annotation name & schema can still change before GA.
+
+Allows mutating HTTP request headers before the proxy forwards traffic upstream. The value must be YAML (or JSON) that decodes into a list of operations:
+
+```yaml
+argon.github.io/request-headers: |
+  - name: X-Debug
+    value: "1"
+    mode: set
+  - name: X-Trace
+    value: "canary"
+    mode: append
+  - name: X-Legacy
+    mode: remove
+```
+
+Supported modes:
+- `set` — replace all existing values of the header with the provided `value`.
+- `append` — add an extra value alongside existing ones.
+- `remove` — delete the header entirely (the `value` field is ignored).
+
+If the annotation is missing or fails to parse, no header rewrites are applied.
+
+---
 ### Examples
 HTTP/1.1 over TLS (backend speaks HTTPS), 15s timeout
 ```yaml

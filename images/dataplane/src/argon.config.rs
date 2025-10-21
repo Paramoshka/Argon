@@ -44,6 +44,9 @@ pub struct Cluster {
     pub backend_protocol: ::prost::alloc::string::String,
     #[prost(message, repeated, tag = "7")]
     pub request_headers: ::prost::alloc::vec::Vec<HeaderRewrite>,
+    /// If true, dataplane skips verifying backend TLS certificates (insecure)
+    #[prost(bool, tag = "8")]
+    pub backend_tls_insecure_skip_verify: bool,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct Route {

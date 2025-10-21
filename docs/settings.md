@@ -81,6 +81,17 @@ Supported modes:
 If the annotation is missing or fails to parse, no header rewrites are applied.
 
 ---
+> argon.github.io/backend-tls-insecure-skip-verify
+
+Controls whether the dataplane verifies the backend's TLS certificate when `backend-protocol` uses TLS (`h1-ssl`/`h2-ssl`).
+
+- Type: boolean (quote in YAML): `"true"` or `"false"`
+- Default: `false` (verify certificates against system roots)
+- When `true`, the dataplane accepts any backend certificate (self-signed, expired, or mismatched).
+
+Warning: This is insecure. Use only for development or when you explicitly trust the backend.
+
+---
 ### Examples
 HTTP/1.1 over TLS (backend speaks HTTPS), 15s timeout
 ```yaml
@@ -91,6 +102,7 @@ metadata:
   annotations:
     argon.github.io/backend-protocol: "h1-ssl"
     argon.github.io/backend-timeout: "15000"
+    argon.github.io/backend-tls-insecure-skip-verify: "true"   # optional; accept self-signed certs
 spec:
   rules:
   - host: echo.example.com

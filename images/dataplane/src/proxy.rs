@@ -16,6 +16,9 @@ use tokio_util::future::FutureExt;
 
 pub struct Proxy;
 
+#[derive(Clone, Copy, Debug)]
+pub struct FrontendTls(pub bool);
+
 // hop-by-hop headers that cannot be proxied (RFC 7230)
 
 static PROXY_CONNECTION: HeaderName = HeaderName::from_static("proxy-connection");
@@ -37,6 +40,11 @@ pub async fn proxy_handler(
     mut req: Request<hyper::body::Incoming>,
     state: AppState,
 ) -> Result<Response<BoxBody<Bytes, hyper::Error>>, hyper::Error> {
+    let frontend_is_tls = req
+        .extensions()
+        .get::<FrontendTls>()
+        .map(|f| f.0)
+        .unwrap_or(false);
     let route_table = state.route_table.read().await;
 
     // <--Get host-->
@@ -102,6 +110,7 @@ pub async fn proxy_handler(
         &ep.address,
         ep.port as u16,
         cluster_rules.backend_protocol.clone(),
+        frontend_is_tls,
     );
 
     if !header_rewrites.is_empty() {
@@ -114,8 +123,12 @@ pub async fn proxy_handler(
     let addr = format!("{}:{}", ep.address, ep.port);
     let pool = state.client_pool.load();
     let timeout = Duration::from_millis(cluster_rules.timeout_ms as u64);
-    let Ok(req) = pool
-        .connector
+    let client = if cluster_rules.backend_tls_insecure_skip_verify {
+        &pool.connector_insecure
+    } else {
+        &pool.connector
+    };
+    let Ok(req) = client
         .request(req.map(|b| b.boxed()))
         .timeout(timeout)
         .await
@@ -142,6 +155,7 @@ fn handle_req_upstream(
     upstream_host: &str,
     upstream_port: u16,
     proto: BackendProtocol,
+    frontend_is_tls: bool,
 ) {
     let mut parts = req.uri().clone().into_parts();
 
@@ -177,7 +191,7 @@ fn handle_req_upstream(
         req.headers_mut().insert(header::HOST, hv);
     }
 
-    add_forward_headers(req.headers_mut(), is_tls, original_host);
+    add_forward_headers(req.headers_mut(), frontend_is_tls, original_host);
 
     if let Ok(new_uri) = Uri::from_parts(parts) {
         *req.uri_mut() = new_uri;
@@ -202,8 +216,8 @@ fn remove_hop_headers(headers: &mut HeaderMap) {
     }
 }
 
-fn add_forward_headers(h: &mut http::HeaderMap, is_tls: bool, original_host: &str) {
-    let proto = if is_tls { "https" } else { "http" };
+fn add_forward_headers(h: &mut http::HeaderMap, frontend_is_tls: bool, original_host: &str) {
+    let proto = if frontend_is_tls { "https" } else { "http" };
     let _ = h.insert(
         HeaderName::from_static("x-forwarded-proto"),
         HeaderValue::from_static(proto),

@@ -33,7 +33,7 @@ mod argon_config {
 }
 use crate::client_pool::ClientPool;
 use crate::grpc::GrpcManager;
-use crate::proxy::proxy_handler;
+use crate::proxy::{proxy_handler, FrontendTls};
 use argon_config::Snapshot;
 
 #[derive(Clone, Default)]
@@ -205,7 +205,10 @@ async fn run_http(
                         let state_cloned = state.clone();
                         let builder = builder.clone();
                         conns.spawn(async move {
-                            let svc = service_fn(move |req: Request<Incoming>| proxy_handler(req, state_cloned.clone()));
+                            let svc = service_fn(move |mut req: Request<Incoming>| {
+                                req.extensions_mut().insert(FrontendTls(false));
+                                proxy_handler(req, state_cloned.clone())
+                            });
                             if let Err(err) = builder.serve_connection_with_upgrades(io, svc).await {
                                 tracing::error!("HTTP conn error: {err:?}");
                             }
@@ -260,7 +263,10 @@ async fn run_https(
                             .auto_date_header(true)
                             .enable_connect_protocol();
 
-                            let svc = service_fn(move |req: Request<Incoming>| proxy_handler(req, state_cloned.clone()));
+                            let svc = service_fn(move |mut req: Request<Incoming>| {
+                                req.extensions_mut().insert(FrontendTls(true));
+                                proxy_handler(req, state_cloned.clone())
+                            });
                             if let Err(err) = builder.serve_connection_with_upgrades(io, svc).await {
                                 tracing::error!("HTTPS conn error: {err:?}");
                             }

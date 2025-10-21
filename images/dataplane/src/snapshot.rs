@@ -39,6 +39,7 @@ pub struct ClusterRule {
     pub retries: i32,
     pub backend_protocol: BackendProtocol,
     pub request_headers: Arc<Vec<HeaderRewriteRule>>,
+    pub backend_tls_insecure_skip_verify: bool,
     rr_cursor: Arc<AtomicUsize>,
     least_conn_cursor: Arc<DashMap<EndpointKey, Arc<AtomicUsize>>>,
 }
@@ -160,6 +161,7 @@ impl RouteTable {
                         least_conn_cursor: counters,
                         backend_protocol: bp,
                         request_headers,
+                        backend_tls_insecure_skip_verify: cluster.backend_tls_insecure_skip_verify,
                     }));
             }
         }

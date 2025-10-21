@@ -29,6 +29,9 @@ message Cluster {
   int32 retries    = 5;
   string backend_protocol =6;
   repeated HeaderRewrite request_headers = 7;
+  // If true, the dataplane will not verify the backend's TLS certificate
+  // (insecure: accepts self-signed/expired certificates). Defaults to false.
+  bool backend_tls_insecure_skip_verify = 8;
 }
 
 message Route {

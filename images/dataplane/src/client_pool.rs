@@ -1,11 +1,13 @@
 use bytes::Bytes;
 use http_body_util::combinators::BoxBody;
 use hyper_rustls::{HttpsConnector, HttpsConnectorBuilder};
-use hyper_util::client::legacy::connect::HttpConnector;
 use hyper_util::client::legacy::Client;
+use hyper_util::client::legacy::connect::HttpConnector;
 use hyper_util::rt::{TokioExecutor, TokioTimer};
-use rustls::client::danger::{ServerCertVerified, ServerCertVerifier};
-use rustls::ClientConfig;
+use rustls::DigitallySignedStruct;
+use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
+use rustls::pki_types::{CertificateDer, ServerName, UnixTime};
+use rustls::{ClientConfig, SignatureScheme};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -29,19 +31,46 @@ impl ClientPool {
             .build();
 
         // Insecure HTTPS connector that skips certificate verification (for self-signed backends).
-        let insecure_tls_config: Arc<ClientConfig> = {
+        let insecure_tls_config: ClientConfig = {
             // Build a rustls ClientConfig with a custom certificate verifier that accepts any cert.
+            #[derive(Debug)]
             struct NoCertVerifier;
             impl ServerCertVerifier for NoCertVerifier {
                 fn verify_server_cert(
                     &self,
-                    _end_entity: &rustls::pki_types::CertificateDer<'_>,
-                    _intermediates: &[rustls::pki_types::CertificateDer<'_>],
-                    _server_name: &rustls::pki_types::ServerName<'_>,
+                    _end_entity: &CertificateDer<'_>,
+                    _intermediates: &[CertificateDer<'_>],
+                    _server_name: &ServerName<'_>,
                     _ocsp_response: &[u8],
-                    _now: std::time::SystemTime,
+                    _now: UnixTime,
                 ) -> Result<ServerCertVerified, rustls::Error> {
                     Ok(ServerCertVerified::assertion())
+                }
+
+                fn verify_tls12_signature(
+                    &self,
+                    _message: &[u8],
+                    _cert: &CertificateDer<'_>,
+                    _dss: &DigitallySignedStruct,
+                ) -> Result<HandshakeSignatureValid, rustls::Error> {
+                    Ok(HandshakeSignatureValid::assertion())
+                }
+
+                fn verify_tls13_signature(
+                    &self,
+                    _message: &[u8],
+                    _cert: &CertificateDer<'_>,
+                    _dss: &DigitallySignedStruct,
+                ) -> Result<HandshakeSignatureValid, rustls::Error> {
+                    Ok(HandshakeSignatureValid::assertion())
+                }
+
+                fn supported_verify_schemes(&self) -> Vec<SignatureScheme> {
+                    vec![
+                        SignatureScheme::RSA_PSS_SHA256,
+                        SignatureScheme::ECDSA_NISTP256_SHA256,
+                        SignatureScheme::RSA_PKCS1_SHA256,
+                    ]
                 }
             }
 
@@ -49,9 +78,7 @@ impl ClientPool {
                 .dangerous()
                 .with_custom_certificate_verifier(Arc::new(NoCertVerifier))
                 .with_no_client_auth();
-            // Match ALPN used elsewhere in the project
-            cfg.alpn_protocols = vec![b"h2".to_vec(), b"http/1.1".to_vec()];
-            Arc::new(cfg)
+            cfg
         };
 
         let https_insecure = HttpsConnectorBuilder::new()
@@ -73,7 +100,10 @@ impl ClientPool {
             .pool_max_idle_per_host(DEFAULT_COUNT_POOL * count_thread)
             .build(https_insecure);
 
-        ClientPool { connector, connector_insecure }
+        ClientPool {
+            connector,
+            connector_insecure,
+        }
     }
 }
 

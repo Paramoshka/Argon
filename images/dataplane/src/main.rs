@@ -33,7 +33,7 @@ mod argon_config {
 }
 use crate::client_pool::ClientPool;
 use crate::grpc::GrpcManager;
-use crate::proxy::{proxy_handler, FrontendTls};
+use crate::proxy::{FrontendTls, proxy_handler};
 use argon_config::Snapshot;
 
 #[derive(Clone, Default)]
@@ -150,8 +150,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let mut server_config = ServerConfig::builder()
                 .with_no_client_auth()
                 .with_cert_resolver(server_cert_resolver);
-            server_config.alpn_protocols =
-                vec![b"h2".to_vec(), b"http/1.1".to_vec(), b"http/1.0".to_vec()];
 
             let http_handle =
                 tokio::spawn(run_http(http_addr, state.clone(), shutdown_http.clone()));

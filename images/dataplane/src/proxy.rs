@@ -14,8 +14,6 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 use tokio_util::future::FutureExt;
 
-pub struct Proxy;
-
 #[derive(Clone, Copy, Debug)]
 pub struct FrontendTls(pub bool);
 
@@ -103,6 +101,91 @@ pub async fn proxy_handler(
     } = selection;
     let _active_counter = ActiveConnGuard::new(counter);
 
+    // subrequest if DEX AUTH enabled
+    if let Some(auth) = cluster_rules.auth.as_deref() {
+        let path = req.uri().path();
+        if auth.skip_paths.iter().any(|p| path.starts_with(p)) {
+            // skip
+        } else {
+            // Optional fast-path: if a cookie name is configured and the cookie
+            // is absent, redirect to signin immediately.
+            if let Some(cookie_name) = &auth.cookie_name {
+                if let Some(cookies_val) = req.headers().get(header::COOKIE) {
+                    if let Ok(cookies) = cookies_val.to_str() {
+                        let needle = format!("{}=", cookie_name);
+                        if !cookies.contains(&needle) {
+                            if let Some(signin) = &auth.signin {
+                                let location = build_signin_location(
+                                    signin,
+                                    &host,
+                                    req.uri(),
+                                    frontend_is_tls,
+                                );
+                                return Ok(redirect(StatusCode::FOUND, &location));
+                            }
+                        }
+                    }
+                } else if let Some(signin) = &auth.signin {
+                    let location = build_signin_location(signin, &host, req.uri(), frontend_is_tls);
+                    return Ok(redirect(StatusCode::FOUND, &location));
+                }
+            }
+
+            // check auth via subrequest to auth-url
+            let pool = state.client_pool.load();
+            let client = if cluster_rules.backend_tls_insecure_skip_verify {
+                &pool.connector_insecure
+            } else {
+                &pool.connector
+            };
+
+            if let Some(auth_url) = &auth.url {
+                if let Ok(uri) = Uri::from_str(auth_url.as_str()) {
+                    let auth_req = build_auth_request(&req, uri, &host, frontend_is_tls);
+                    let auth_resp = match client.request(auth_req).await {
+                        Ok(r) => r,
+                        Err(e) => {
+                            let err_text = format!(
+                                "Authorization subrequest failed: {:?} : {:?}",
+                                auth_url, e
+                            );
+                            return Ok(text(StatusCode::BAD_GATEWAY, err_text));
+                        }
+                    };
+
+                    let status = auth_resp.status();
+                    if status.is_success() {
+                        // Copy configured headers from auth response into the upstream request
+                        for name in auth.response_headers.iter() {
+                            if let Ok(hn) = HeaderName::from_bytes(name.as_bytes()) {
+                                if let Some(val) = auth_resp.headers().get(&hn) {
+                                    req.headers_mut().insert(hn, val.clone());
+                                }
+                            }
+                        }
+                    } else if status == StatusCode::UNAUTHORIZED || status == StatusCode::FORBIDDEN
+                    {
+                        if let Some(signin) = &auth.signin {
+                            let location =
+                                build_signin_location(signin, &host, req.uri(), frontend_is_tls);
+                            return Ok(redirect(StatusCode::FOUND, &location));
+                        }
+                        return Ok(text(StatusCode::UNAUTHORIZED, "unauthorized"));
+                    } else {
+                        let err_text = format!("authorization service returned {}", status);
+                        return Ok(text(StatusCode::BAD_GATEWAY, err_text));
+                    }
+                } else {
+                    let err_text = format!("Invalid authorization URL: {}", auth_url);
+                    return Ok(text(StatusCode::BAD_GATEWAY, err_text));
+                }
+            } else {
+                let err_text = format!("Authorization URL not found for: {:?}", req.uri());
+                return Ok(text(StatusCode::BAD_GATEWAY, err_text));
+            }
+        }
+    }
+
     // handle req
     handle_req_upstream(
         &mut req,
@@ -147,6 +230,100 @@ pub async fn proxy_handler(
     remove_hop_headers(resp.headers_mut());
 
     Ok(resp.map(|b| b.boxed()))
+}
+
+fn build_auth_request(
+    original_req: &Request<Incoming>,
+    auth_uri: Uri,
+    original_host: &str,
+    frontend_is_tls: bool,
+) -> Request<BoxBody<Bytes, hyper::Error>> {
+    // Copy Cookie and Authorization from original request if present.
+    let mut builder = http::Request::builder().method("GET").uri(auth_uri);
+
+    let headers = builder.headers_mut().expect("headers_mut");
+
+    if let Some(v) = original_req.headers().get(header::COOKIE) {
+        headers.insert(header::COOKIE, v.clone());
+    }
+    if let Some(v) = original_req.headers().get(header::AUTHORIZATION) {
+        headers.insert(header::AUTHORIZATION, v.clone());
+    }
+
+    // Forwarding headers for auth service to understand original request context
+    let scheme = if frontend_is_tls { "https" } else { "http" };
+    let path_q = original_req
+        .uri()
+        .path_and_query()
+        .map(|pq| pq.as_str())
+        .unwrap_or("/");
+    let redirect_url = format!("{}://{}{}", scheme, original_host, path_q);
+
+    headers.insert(
+        HeaderName::from_static("x-forwarded-proto"),
+        HeaderValue::from_static(scheme),
+    );
+    if let Ok(v) = HeaderValue::from_str(original_host) {
+        headers.insert(HeaderName::from_static("x-forwarded-host"), v);
+    }
+    if let Ok(v) = HeaderValue::from_str(path_q) {
+        headers.insert(HeaderName::from_static("x-forwarded-uri"), v);
+    }
+    if let Ok(v) = HeaderValue::from_str(path_q) {
+        headers.insert(HeaderName::from_static("x-original-uri"), v);
+    }
+    if let Ok(v) = HeaderValue::from_str(&redirect_url) {
+        headers.insert(HeaderName::from_static("x-auth-request-redirect"), v);
+    }
+
+    let body: BoxBody<Bytes, hyper::Error> = Full::new(Bytes::new())
+        .map_err(|never: Infallible| match never {})
+        .boxed();
+    builder.body(body).expect("build auth request")
+}
+
+fn redirect(status: StatusCode, location: &str) -> http::Response<BoxBody<Bytes, hyper::Error>> {
+    let body: BoxBody<Bytes, hyper::Error> = Full::new(Bytes::from_static(b"redirect"))
+        .map_err(|never: Infallible| match never {})
+        .boxed();
+    let mut resp = http::Response::builder()
+        .status(status)
+        .body(body)
+        .expect("failed to build redirect");
+    if let Ok(loc) = HeaderValue::from_str(location) {
+        resp.headers_mut().insert(header::LOCATION, loc);
+    }
+    resp
+}
+
+fn build_signin_location(
+    signin_tmpl: &str,
+    host: &str,
+    uri: &Uri,
+    frontend_is_tls: bool,
+) -> String {
+    let scheme = if frontend_is_tls { "https" } else { "http" };
+    let path_q = uri.path_and_query().map(|pq| pq.as_str()).unwrap_or("/");
+    let escaped = percent_encode(path_q);
+    // Replace $host and $escaped_request_uri if present in template
+    let mut out = signin_tmpl.replace("$host", host);
+    out = out.replace("$escaped_request_uri", &escaped);
+    out = out.replace("$scheme", scheme);
+    out
+}
+
+fn percent_encode(input: &str) -> String {
+    const UNRESERVED: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~";
+    let mut out = String::with_capacity(input.len() * 3);
+    for b in input.as_bytes() {
+        if UNRESERVED.contains(b) {
+            out.push(*b as char);
+        } else {
+            out.push('%');
+            out.push_str(&format!("{:02X}", b));
+        }
+    }
+    out
 }
 
 fn handle_req_upstream(

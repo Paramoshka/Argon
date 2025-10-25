@@ -179,6 +179,15 @@ func toPbSnapshot(in model.Snapshot) *argonpb.Snapshot {
 				Value: rw.Value,
 			})
 		}
+		if c.Auth != nil {
+			pc.Auth = &argonpb.AuthConfig{
+				Url:             c.Auth.URL,
+				Signin:          c.Auth.Signin,
+				ResponseHeaders: c.Auth.ResponseHeaders,
+				SkipPaths:       c.Auth.SkipPaths,
+				CookieName:      c.Auth.CookieName,
+			}
+		}
 		pb.Clusters = append(pb.Clusters, pc)
 	}
 

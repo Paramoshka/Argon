@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use crate::argon_config::{Endpoint, HeaderRewrite, Snapshot};
+use crate::argon_config::{AuthConfig, Endpoint, HeaderRewrite, Snapshot};
 use tracing::warn;
 
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
@@ -30,6 +30,78 @@ pub struct SelectedEndpoint {
 }
 
 #[derive(Clone, Debug)]
+pub struct AuthConfigDex {
+    pub url: Option<String>,
+    pub signin: Option<String>,
+    pub response_headers: Arc<Vec<String>>, // names to copy from auth response
+    pub skip_paths: Arc<Vec<String>>,       // prefixes to skip auth
+    pub cookie_name: Option<String>,
+}
+
+impl AuthConfigDex {
+    pub fn from_pb(pb: &AuthConfig) -> Self {
+        let url = if pb.url.trim().is_empty() {
+            None
+        } else {
+            Some(pb.url.clone())
+        };
+        let signin = if pb.signin.trim().is_empty() {
+            None
+        } else {
+            Some(pb.signin.clone())
+        };
+        let cookie_name = if pb.cookie_name.trim().is_empty() {
+            None
+        } else {
+            Some(pb.cookie_name.clone())
+        };
+
+        // Normalize lists: trim, drop empties, dedup while preserving order
+        fn normalize_list(items: &[String]) -> Vec<String> {
+            let mut out = Vec::with_capacity(items.len());
+            for s in items {
+                let v = s.trim();
+                if v.is_empty() {
+                    continue;
+                }
+                if !out
+                    .iter()
+                    .any(|x: &String| x.as_str().eq_ignore_ascii_case(v))
+                {
+                    out.push(v.to_string());
+                }
+            }
+            out
+        }
+
+        let response_headers = Arc::new(normalize_list(&pb.response_headers));
+        let skip_paths = Arc::new(normalize_list(&pb.skip_paths));
+
+        AuthConfigDex {
+            url,
+            signin,
+            response_headers,
+            skip_paths,
+            cookie_name,
+        }
+    }
+}
+
+fn build_auth_runtime(auth: Option<&AuthConfig>) -> Option<Arc<AuthConfigDex>> {
+    let Some(pb) = auth else { return None };
+    // If everything is empty, don't attach auth
+    let has_any = !pb.url.trim().is_empty()
+        || !pb.signin.trim().is_empty()
+        || !pb.response_headers.is_empty()
+        || !pb.skip_paths.is_empty()
+        || !pb.cookie_name.trim().is_empty();
+    if !has_any {
+        return None;
+    }
+    Some(Arc::new(AuthConfigDex::from_pb(pb)))
+}
+
+#[derive(Clone, Debug)]
 pub struct ClusterRule {
     name: String,
     /// "RoundRobin"...
@@ -42,6 +114,7 @@ pub struct ClusterRule {
     pub backend_tls_insecure_skip_verify: bool,
     rr_cursor: Arc<AtomicUsize>,
     least_conn_cursor: Arc<DashMap<EndpointKey, Arc<AtomicUsize>>>,
+    pub auth: Option<Arc<AuthConfigDex>>,
 }
 
 #[derive(Copy, Clone, Eq, PartialEq, Debug, Hash)]
@@ -149,6 +222,7 @@ impl RouteTable {
             if let Some(lb) = LBPolicy::parse(&cluster.lb_policy) {
                 let counters = EndpointKey::build_map(&cluster.endpoints);
                 let request_headers = build_header_rewrites(&cluster.request_headers);
+                let auth = build_auth_runtime(cluster.auth.as_ref());
                 clusters
                     .entry(cluster.name.to_ascii_lowercase())
                     .insert_entry(Arc::from(ClusterRule {
@@ -162,6 +236,7 @@ impl RouteTable {
                         backend_protocol: bp,
                         request_headers,
                         backend_tls_insecure_skip_verify: cluster.backend_tls_insecure_skip_verify,
+                        auth,
                     }));
             }
         }

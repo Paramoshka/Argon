@@ -210,8 +210,12 @@ type Cluster struct {
 	Retries         int32                  `protobuf:"varint,5,opt,name=retries,proto3" json:"retries,omitempty"`
 	BackendProtocol string                 `protobuf:"bytes,6,opt,name=backend_protocol,json=backendProtocol,proto3" json:"backend_protocol,omitempty"`
 	RequestHeaders  []*HeaderRewrite       `protobuf:"bytes,7,rep,name=request_headers,json=requestHeaders,proto3" json:"request_headers,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	// If true, the dataplane will not verify the backend's TLS certificate
+	// (insecure: accepts self-signed/expired certificates). Defaults to false.
+	BackendTlsInsecureSkipVerify bool        `protobuf:"varint,8,opt,name=backend_tls_insecure_skip_verify,json=backendTlsInsecureSkipVerify,proto3" json:"backend_tls_insecure_skip_verify,omitempty"`
+	Auth                         *AuthConfig `protobuf:"bytes,9,opt,name=auth,proto3" json:"auth,omitempty"` // External auth (e.g., oauth2-proxy)
+	unknownFields                protoimpl.UnknownFields
+	sizeCache                    protoimpl.SizeCache
 }
 
 func (x *Cluster) Reset() {
@@ -289,6 +293,20 @@ func (x *Cluster) GetBackendProtocol() string {
 func (x *Cluster) GetRequestHeaders() []*HeaderRewrite {
 	if x != nil {
 		return x.RequestHeaders
+	}
+	return nil
+}
+
+func (x *Cluster) GetBackendTlsInsecureSkipVerify() bool {
+	if x != nil {
+		return x.BackendTlsInsecureSkipVerify
+	}
+	return false
+}
+
+func (x *Cluster) GetAuth() *AuthConfig {
+	if x != nil {
+		return x.Auth
 	}
 	return nil
 }
@@ -553,6 +571,82 @@ func (x *Snapshot) GetServerTls() []*ServerTlsBundle {
 	return nil
 }
 
+type AuthConfig struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	Url             string                 `protobuf:"bytes,1,opt,name=url,proto3" json:"url,omitempty"`
+	Signin          string                 `protobuf:"bytes,2,opt,name=signin,proto3" json:"signin,omitempty"`
+	ResponseHeaders []string               `protobuf:"bytes,3,rep,name=response_headers,json=responseHeaders,proto3" json:"response_headers,omitempty"`
+	SkipPaths       []string               `protobuf:"bytes,4,rep,name=skip_paths,json=skipPaths,proto3" json:"skip_paths,omitempty"`
+	CookieName      string                 `protobuf:"bytes,5,opt,name=cookie_name,json=cookieName,proto3" json:"cookie_name,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *AuthConfig) Reset() {
+	*x = AuthConfig{}
+	mi := &file_argon_config_proto_msgTypes[7]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AuthConfig) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AuthConfig) ProtoMessage() {}
+
+func (x *AuthConfig) ProtoReflect() protoreflect.Message {
+	mi := &file_argon_config_proto_msgTypes[7]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AuthConfig.ProtoReflect.Descriptor instead.
+func (*AuthConfig) Descriptor() ([]byte, []int) {
+	return file_argon_config_proto_rawDescGZIP(), []int{7}
+}
+
+func (x *AuthConfig) GetUrl() string {
+	if x != nil {
+		return x.Url
+	}
+	return ""
+}
+
+func (x *AuthConfig) GetSignin() string {
+	if x != nil {
+		return x.Signin
+	}
+	return ""
+}
+
+func (x *AuthConfig) GetResponseHeaders() []string {
+	if x != nil {
+		return x.ResponseHeaders
+	}
+	return nil
+}
+
+func (x *AuthConfig) GetSkipPaths() []string {
+	if x != nil {
+		return x.SkipPaths
+	}
+	return nil
+}
+
+func (x *AuthConfig) GetCookieName() string {
+	if x != nil {
+		return x.CookieName
+	}
+	return ""
+}
+
 var File_argon_config_proto protoreflect.FileDescriptor
 
 const file_argon_config_proto_rawDesc = "" +
@@ -569,7 +663,7 @@ const file_argon_config_proto_rawDesc = "" +
 	"\rHeaderRewrite\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x12\n" +
 	"\x04mode\x18\x02 \x01(\tR\x04mode\x12\x14\n" +
-	"\x05value\x18\x03 \x01(\tR\x05value\"\x9a\x02\n" +
+	"\x05value\x18\x03 \x01(\tR\x05value\"\x90\x03\n" +
 	"\aCluster\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x1b\n" +
 	"\tlb_policy\x18\x02 \x01(\tR\blbPolicy\x124\n" +
@@ -578,7 +672,9 @@ const file_argon_config_proto_rawDesc = "" +
 	"timeout_ms\x18\x04 \x01(\x05R\ttimeoutMs\x12\x18\n" +
 	"\aretries\x18\x05 \x01(\x05R\aretries\x12)\n" +
 	"\x10backend_protocol\x18\x06 \x01(\tR\x0fbackendProtocol\x12D\n" +
-	"\x0frequest_headers\x18\a \x03(\v2\x1b.argon.config.HeaderRewriteR\x0erequestHeaders\"\x82\x01\n" +
+	"\x0frequest_headers\x18\a \x03(\v2\x1b.argon.config.HeaderRewriteR\x0erequestHeaders\x12F\n" +
+	" backend_tls_insecure_skip_verify\x18\b \x01(\bR\x1cbackendTlsInsecureSkipVerify\x12,\n" +
+	"\x04auth\x18\t \x01(\v2\x18.argon.config.AuthConfigR\x04auth\"\x82\x01\n" +
 	"\x05Route\x12\x12\n" +
 	"\x04host\x18\x01 \x01(\tR\x04host\x12\x12\n" +
 	"\x04path\x18\x02 \x01(\tR\x04path\x12\x1b\n" +
@@ -605,7 +701,16 @@ const file_argon_config_proto_rawDesc = "" +
 	"server_tls\x18\x1e \x03(\v2\x1d.argon.config.ServerTlsBundleR\tserverTls\x1aC\n" +
 	"\x15ResourceVersionsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x012P\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xa1\x01\n" +
+	"\n" +
+	"AuthConfig\x12\x10\n" +
+	"\x03url\x18\x01 \x01(\tR\x03url\x12\x16\n" +
+	"\x06signin\x18\x02 \x01(\tR\x06signin\x12)\n" +
+	"\x10response_headers\x18\x03 \x03(\tR\x0fresponseHeaders\x12\x1d\n" +
+	"\n" +
+	"skip_paths\x18\x04 \x03(\tR\tskipPaths\x12\x1f\n" +
+	"\vcookie_name\x18\x05 \x01(\tR\n" +
+	"cookieName2P\n" +
 	"\x0fConfigDiscovery\x12=\n" +
 	"\x05Watch\x12\x1a.argon.config.WatchRequest\x1a\x16.argon.config.Snapshot0\x01B6Z4argon.github.io/ingress/internal/gen/argonpb;argonpbb\x06proto3"
 
@@ -621,7 +726,7 @@ func file_argon_config_proto_rawDescGZIP() []byte {
 	return file_argon_config_proto_rawDescData
 }
 
-var file_argon_config_proto_msgTypes = make([]protoimpl.MessageInfo, 8)
+var file_argon_config_proto_msgTypes = make([]protoimpl.MessageInfo, 9)
 var file_argon_config_proto_goTypes = []any{
 	(*WatchRequest)(nil),    // 0: argon.config.WatchRequest
 	(*Endpoint)(nil),        // 1: argon.config.Endpoint
@@ -630,22 +735,24 @@ var file_argon_config_proto_goTypes = []any{
 	(*Route)(nil),           // 4: argon.config.Route
 	(*ServerTlsBundle)(nil), // 5: argon.config.ServerTlsBundle
 	(*Snapshot)(nil),        // 6: argon.config.Snapshot
-	nil,                     // 7: argon.config.Snapshot.ResourceVersionsEntry
+	(*AuthConfig)(nil),      // 7: argon.config.AuthConfig
+	nil,                     // 8: argon.config.Snapshot.ResourceVersionsEntry
 }
 var file_argon_config_proto_depIdxs = []int32{
 	1, // 0: argon.config.Cluster.endpoints:type_name -> argon.config.Endpoint
 	2, // 1: argon.config.Cluster.request_headers:type_name -> argon.config.HeaderRewrite
-	7, // 2: argon.config.Snapshot.resource_versions:type_name -> argon.config.Snapshot.ResourceVersionsEntry
-	4, // 3: argon.config.Snapshot.routes:type_name -> argon.config.Route
-	3, // 4: argon.config.Snapshot.clusters:type_name -> argon.config.Cluster
-	5, // 5: argon.config.Snapshot.server_tls:type_name -> argon.config.ServerTlsBundle
-	0, // 6: argon.config.ConfigDiscovery.Watch:input_type -> argon.config.WatchRequest
-	6, // 7: argon.config.ConfigDiscovery.Watch:output_type -> argon.config.Snapshot
-	7, // [7:8] is the sub-list for method output_type
-	6, // [6:7] is the sub-list for method input_type
-	6, // [6:6] is the sub-list for extension type_name
-	6, // [6:6] is the sub-list for extension extendee
-	0, // [0:6] is the sub-list for field type_name
+	7, // 2: argon.config.Cluster.auth:type_name -> argon.config.AuthConfig
+	8, // 3: argon.config.Snapshot.resource_versions:type_name -> argon.config.Snapshot.ResourceVersionsEntry
+	4, // 4: argon.config.Snapshot.routes:type_name -> argon.config.Route
+	3, // 5: argon.config.Snapshot.clusters:type_name -> argon.config.Cluster
+	5, // 6: argon.config.Snapshot.server_tls:type_name -> argon.config.ServerTlsBundle
+	0, // 7: argon.config.ConfigDiscovery.Watch:input_type -> argon.config.WatchRequest
+	6, // 8: argon.config.ConfigDiscovery.Watch:output_type -> argon.config.Snapshot
+	8, // [8:9] is the sub-list for method output_type
+	7, // [7:8] is the sub-list for method input_type
+	7, // [7:7] is the sub-list for extension type_name
+	7, // [7:7] is the sub-list for extension extendee
+	0, // [0:7] is the sub-list for field type_name
 }
 
 func init() { file_argon_config_proto_init() }
@@ -659,7 +766,7 @@ func file_argon_config_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_argon_config_proto_rawDesc), len(file_argon_config_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   8,
+			NumMessages:   9,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

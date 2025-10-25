@@ -109,7 +109,7 @@ func getRequestHeaders(reqHeadersRaw string) ([]RewriteHeaders, error) {
 
 func parseAnnotations(annotations map[string]string) *TargetEndpoint {
 
-	te := &TargetEndpoint{}
+    te := &TargetEndpoint{}
 
 	backendProtocol := "h1"
 	if _, exists := annotations[BACKEND_PROTOCOL_ANNOTATION]; exists {
@@ -143,6 +143,40 @@ func parseAnnotations(annotations map[string]string) *TargetEndpoint {
         }
     }
     te.LBAlgorithm = lbAlgorithm
+
+    // Auth annotations
+    var auth *AuthConfig
+    if rawURL, ok := annotations[AUTH_URL_ANNOTATION]; ok && strings.TrimSpace(rawURL) != "" {
+        if auth == nil {
+            auth = &AuthConfig{}
+        }
+        auth.URL = strings.TrimSpace(rawURL)
+    }
+    if rawSignin, ok := annotations[AUTH_SIGNIN_ANNOTATION]; ok && strings.TrimSpace(rawSignin) != "" {
+        if auth == nil {
+            auth = &AuthConfig{}
+        }
+        auth.Signin = strings.TrimSpace(rawSignin)
+    }
+    if rawResp, ok := annotations[AUTH_RESPONSE_HEADERS_ANNOTATION]; ok && strings.TrimSpace(rawResp) != "" {
+        if auth == nil {
+            auth = &AuthConfig{}
+        }
+        auth.ResponseHeaders = parseCSVList(rawResp)
+    }
+    if rawSkip, ok := annotations[AUTH_SKIP_PATHS_ANNOTATION]; ok && strings.TrimSpace(rawSkip) != "" {
+        if auth == nil {
+            auth = &AuthConfig{}
+        }
+        auth.SkipPaths = parseCSVList(rawSkip)
+    }
+    if rawCookie, ok := annotations[AUTH_COOKIE_NAME_ANNOTATION]; ok && strings.TrimSpace(rawCookie) != "" {
+        if auth == nil {
+            auth = &AuthConfig{}
+        }
+        auth.CookieName = strings.TrimSpace(rawCookie)
+    }
+    te.Auth = auth
 
     return te
 }
@@ -229,6 +263,25 @@ func buildTargetFromRule(
     }
 
     return target
+}
+
+// parseCSVList splits a comma-separated list, trims whitespace, and removes empties/duplicates.
+func parseCSVList(s string) []string {
+    parts := strings.Split(s, ",")
+    out := make([]string, 0, len(parts))
+    seen := map[string]struct{}{}
+    for _, p := range parts {
+        v := strings.TrimSpace(p)
+        if v == "" {
+            continue
+        }
+        if _, ok := seen[v]; ok {
+            continue
+        }
+        seen[v] = struct{}{}
+        out = append(out, v)
+    }
+    return out
 }
 
 // buildTLSBundle extracts TLS Secret bundle for an Ingress.

@@ -156,6 +156,7 @@ func (r *ArgonConfigReconciler) ToSnapshot(targets []TargetProxy) Snapshot {
 				Retries:         te.Retries,
 				BackendProtocol: te.BackendProtocol,
 				RewriteHeaders:  te.RewriteHeaders,
+				Auth:            te.Auth,
 			}
 			for _, a := range te.Addresses {
 				cluster.Endpoints = append(cluster.Endpoints, Endpoint{

@@ -32,6 +32,7 @@ message Cluster {
   // If true, the dataplane will not verify the backend's TLS certificate
   // (insecure: accepts self-signed/expired certificates). Defaults to false.
   bool backend_tls_insecure_skip_verify = 8;
+  AuthConfig auth = 9;               // External auth (e.g., oauth2-proxy)
 }
 
 message Route {
@@ -60,6 +61,14 @@ message Snapshot {
   repeated Route routes   = 20;
   repeated Cluster clusters = 21;
   repeated ServerTlsBundle server_tls = 30;
+}
+
+message AuthConfig {
+  string url = 1;
+  string signin = 2;
+  repeated string response_headers = 3;
+  repeated string skip_paths = 4;
+  string cookie_name = 5;
 }
 
 service ConfigDiscovery {

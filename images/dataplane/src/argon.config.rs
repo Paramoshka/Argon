@@ -44,9 +44,13 @@ pub struct Cluster {
     pub backend_protocol: ::prost::alloc::string::String,
     #[prost(message, repeated, tag = "7")]
     pub request_headers: ::prost::alloc::vec::Vec<HeaderRewrite>,
-    /// If true, dataplane skips verifying backend TLS certificates (insecure)
+    /// If true, the dataplane will not verify the backend's TLS certificate
+    /// (insecure: accepts self-signed/expired certificates). Defaults to false.
     #[prost(bool, tag = "8")]
     pub backend_tls_insecure_skip_verify: bool,
+    /// External auth (e.g., oauth2-proxy)
+    #[prost(message, optional, tag = "9")]
+    pub auth: ::core::option::Option<AuthConfig>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct Route {
@@ -104,6 +108,19 @@ pub struct Snapshot {
     pub clusters: ::prost::alloc::vec::Vec<Cluster>,
     #[prost(message, repeated, tag = "30")]
     pub server_tls: ::prost::alloc::vec::Vec<ServerTlsBundle>,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct AuthConfig {
+    #[prost(string, tag = "1")]
+    pub url: ::prost::alloc::string::String,
+    #[prost(string, tag = "2")]
+    pub signin: ::prost::alloc::string::String,
+    #[prost(string, repeated, tag = "3")]
+    pub response_headers: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    #[prost(string, repeated, tag = "4")]
+    pub skip_paths: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    #[prost(string, tag = "5")]
+    pub cookie_name: ::prost::alloc::string::String,
 }
 /// Generated client implementations.
 pub mod config_discovery_client {

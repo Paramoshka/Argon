@@ -237,8 +237,8 @@ proto-gen:
 	@mkdir -p internal/gen/argonpb
 	protoc \
 		-I images/dataplane/proto \
-		--go_out=internal/gen/argonpb --go_opt=paths=source_relative \
-		--go-grpc_out=internal/gen/argonpb --go-grpc_opt=paths=source_relative \
+		--go_out=images/controlplane/internal/gen/argonpb --go_opt=paths=source_relative \
+		--go-grpc_out=images/controlplane/internal/gen/argonpb --go-grpc_opt=paths=source_relative \
 		argon/config.proto
 	cd images/dataplane && cargo build
 	@echo "✅ Proto generation done."

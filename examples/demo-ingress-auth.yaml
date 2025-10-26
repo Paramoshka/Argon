@@ -1,0 +1,90 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: echo
+  namespace: default
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: echo
+  template:
+    metadata:
+      labels:
+        app: echo
+    spec:
+      containers:
+        - name: echo
+          image: ealen/echo-server:latest
+          ports:
+            - containerPort: 80
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: echo
+  namespace: default
+spec:
+  selector:
+    app: echo
+  ports:
+    - name: http
+      port: 80
+      targetPort: 80
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: echo-oauth2-routes
+  namespace: default
+  annotations:
+    kubernetes.io/ingress.class: argon
+spec:
+  ingressClassName: argon
+  rules:
+    - host: echo.local
+      http:
+        paths:
+          # Route /oauth2/ to oauth2-proxy service so the signin redirect works
+          - path: /oauth2/
+            pathType: Prefix
+            backend:
+              service:
+                name: oauth2-proxy
+                port:
+                  number: 4180
+  # Annotations for auth go on the same Ingress; they apply to cluster built for each path
+  # Argon collects them per-Ingress. Configure required ones below.
+  # Note: our controller reads these annotations and dataplane enforces:
+  #  - subrequest to auth-url with forwarded headers
+  #  - redirect to auth-signin when unauthorized
+  #  - copy headers from auth-response-headers to upstream
+  #  - skip auth for paths with prefix in auth-skip-paths
+  #  - cookie-name is used for optional fast redirect-first
+  # Add them at metadata.annotations for the Ingress resource
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: echo-auth
+  namespace: default
+  annotations:
+    kubernetes.io/ingress.class: argon
+    argon.github.io/auth-url: "http://oauth2-proxy.default.svc.cluster.local:4180/oauth2/auth"
+    argon.github.io/auth-signin: "http://$host:8080/oauth2/start?rd=$escaped_request_uri"
+    argon.github.io/auth-response-headers: "X-Auth-Request-User, X-Auth-Request-Email, X-Auth-Request-Preferred-Username"
+    argon.github.io/auth-skip-paths: "/oauth2/"
+    argon.github.io/auth-cookie-name: "_oauth2_proxy"
+spec:
+  ingressClassName: argon
+  rules:
+    - host: echo.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: echo
+                port:
+                  number: 80

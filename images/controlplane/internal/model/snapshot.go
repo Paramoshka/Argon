@@ -87,15 +87,16 @@ type Route struct {
 
 // Cluster — logical backend (host+path or name service)
 type Cluster struct {
-	Name      string     `json:"name"`
-	LBPolicy  LBPolicy   `json:"lbPolicy,omitempty"` // RR
-	Endpoints []Endpoint `json:"endpoints"`
-	// retries/timeouts/health-check
-	TimeoutMs       int32            `json:"timeoutMs,omitempty"`
-	Retries         int32            `json:"retries,omitempty"`
-	BackendProtocol string           `json:"backendProtocol,omitempty"`
-	LBAlgorithm     LBPolicy         `json:"lbAlgotihm,omitempty"`
-	RewriteHeaders  []RewriteHeaders `json:"rwHeaders"`
+    Name      string     `json:"name"`
+    LBPolicy  LBPolicy   `json:"lbPolicy,omitempty"` // RR
+    Endpoints []Endpoint `json:"endpoints"`
+    // retries/timeouts/health-check
+    TimeoutMs       int32            `json:"timeoutMs,omitempty"`
+    Retries         int32            `json:"retries,omitempty"`
+    BackendProtocol string           `json:"backendProtocol,omitempty"`
+    LBAlgorithm     LBPolicy         `json:"lbAlgotihm,omitempty"`
+    RewriteHeaders  []RewriteHeaders `json:"rwHeaders"`
+    Auth            *AuthConfig      `json:"auth,omitempty"`
 }
 
 type LBPolicy string
@@ -158,13 +159,23 @@ type RewriteHeaders struct {
 }
 
 type TargetEndpoint struct {
-	Port            int32
-	Protocol        corev1.Protocol
-	BackendProtocol string
-	Addresses       []string
-	PathType        *v1networking.PathType
-	Retries         int32
-	TimeoutMs       int32
-	LBAlgorithm     LBPolicy
-	RewriteHeaders  []RewriteHeaders
+    Port            int32
+    Protocol        corev1.Protocol
+    BackendProtocol string
+    Addresses       []string
+    PathType        *v1networking.PathType
+    Retries         int32
+    TimeoutMs       int32
+    LBAlgorithm     LBPolicy
+    RewriteHeaders  []RewriteHeaders
+    Auth            *AuthConfig
+}
+
+// AuthConfig describes external authorization parameters (e.g., oauth2-proxy).
+type AuthConfig struct {
+    URL             string   `json:"url,omitempty"`
+    Signin          string   `json:"signin,omitempty"`
+    ResponseHeaders []string `json:"responseHeaders,omitempty"`
+    SkipPaths       []string `json:"skipPaths,omitempty"`
+    CookieName      string   `json:"cookieName,omitempty"`
 }

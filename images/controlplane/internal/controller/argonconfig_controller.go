@@ -17,20 +17,24 @@ limitations under the License.
 package controller
 
 import (
-    "context"
-    "crypto/sha256"
-    "encoding/hex"
-    "fmt"
-    "time"
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"fmt"
+	"time"
 
-    . "argon/internal/grpc"
-    . "argon/internal/model"
+	. "argon/internal/grpc"
+	. "argon/internal/model"
 
-    networkingv1 "k8s.io/api/networking/v1"
-    "k8s.io/apimachinery/pkg/runtime"
-    ctrl "sigs.k8s.io/controller-runtime"
-    "sigs.k8s.io/controller-runtime/pkg/client"
-    "sigs.k8s.io/controller-runtime/pkg/log"
+	discoveryv1 "k8s.io/api/discovery/v1"
+	networkingv1 "k8s.io/api/networking/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
+	"sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 )
 
 // ArgonConfigReconciler reconciles a ArgonConfig object
@@ -91,6 +95,11 @@ func (r *ArgonConfigReconciler) SetupWithManager(mgr ctrl.Manager) error {
 
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&networkingv1.Ingress{}).
+		Watches(
+			&discoveryv1.EndpointSlice{},
+			&handler.EnqueueRequestForObject{},
+			builder.WithPredicates(predicate.ResourceVersionChangedPredicate{}),
+		).
 		Named("ingress-controller").
 		Complete(r)
 }

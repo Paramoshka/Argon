@@ -20,7 +20,7 @@ spec:
         args:
           - --provider=oidc
           # Use the public issuer, exposed via Ingress
-          - --oidc-issuer-url=http://dex.local:8080/dex
+          - --oidc-issuer-url=http://dex.oauth.svc.cluster.local:5556/dex
           - --client-id=oauth2-proxy
           - --email-domain=*
           - --http-address=0.0.0.0:4180
@@ -29,7 +29,7 @@ spec:
           - --skip-provider-button=true
           - --cookie-secure=false
           - --cookie-samesite=lax
-          - --redirect-url=http://echo.local/oauth2/callback
+          - --redirect-url=http://echo.local:8080/oauth2/callback
         env:
           - name: OAUTH2_PROXY_CLIENT_SECRET
             valueFrom:

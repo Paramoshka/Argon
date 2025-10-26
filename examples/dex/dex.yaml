@@ -26,7 +26,7 @@ data:
       name: OAuth2 Proxy
       secret: oauth2-proxy-secret
       redirectURIs:
-      - http://echo.local/oauth2/callback
+      - http://echo.local:8080/oauth2/callback
 
     staticPasswords:
     - email: user@example.com

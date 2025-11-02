@@ -6,27 +6,38 @@ on:
 
 jobs:
   test-e2e:
-    name: Run on Ubuntu
-    runs-on: ubuntu-latest
+    name: Run on Self-hosted Linux
+    runs-on: [self-hosted, linux, x64]
     steps:
-      - name: Clone the code
-        uses: actions/checkout@v4
 
-      - name: Setup Go
-        uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-
-      - name: Install the latest version of kind
+      # Use the runner's default kubeconfig/context; no kind cluster
+      - name: Install kubectl if missing (no sudo)
+        shell: bash
         run: |
-          curl -Lo ./kind https://kind.sigs.k8s.io/dl/latest/kind-linux-amd64
-          chmod +x ./kind
-          sudo mv ./kind /usr/local/bin/kind
+          if ! command -v kubectl >/dev/null 2>&1; then
+            echo "kubectl not found; installing locally";
+            ver="$(curl -fsSL https://dl.k8s.io/release/stable.txt)";
+            curl -fsSL -o "$RUNNER_TEMP/kubectl" "https://dl.k8s.io/release/${ver}/bin/linux/amd64/kubectl";
+            chmod +x "$RUNNER_TEMP/kubectl";
+            mkdir -p "$HOME/.local/bin";
+            mv "$RUNNER_TEMP/kubectl" "$HOME/.local/bin/kubectl";
+            echo "$HOME/.local/bin" >> "$GITHUB_PATH";
+          else
+            echo "kubectl already installed";
+          fi
 
-      - name: Verify kind installation
-        run: kind version
-
-      - name: Running Test e2e
+      - name: Show kube context
         run: |
-          go mod tidy
-          make test-e2e
+          kubectl config current-context || true
+          kubectl cluster-info || true
+
+      - name: Go mod tidy (controlplane)
+        working-directory: images/controlplane
+        run: go mod tidy
+
+      - name: Go mod tidy (test)
+        working-directory: test
+        run: go mod tidy
+
+      - name: Run e2e tests
+        run: go test ./test/e2e/ -v -ginkgo.v

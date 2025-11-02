@@ -1,19 +1,17 @@
 use crate::AppState;
 use crate::snapshot::{BackendProtocol, HeaderRewriteMode, HeaderRewriteRule, SelectedEndpoint};
-use anyhow::Ok;
 use bytes::Bytes;
 use http::uri::{Authority, PathAndQuery};
 use http::{HeaderMap, HeaderName, HeaderValue, StatusCode, Uri, Version, header};
 use http_body_util::Full;
 use http_body_util::{BodyExt, combinators::BoxBody};
-use hyper::body::Incoming;
+use hyper::body::{Body, Incoming};
 use hyper::{Request, Response};
 use std::convert::Infallible;
 use std::str::FromStr;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
-use tokio::time::sleep;
 use tokio_util::future::FutureExt;
 
 #[derive(Clone, Copy, Debug)]
@@ -202,6 +200,12 @@ pub async fn proxy_handler(
         apply_header_rewrites(req.headers_mut(), header_rewrites.as_ref());
     }
 
+    let method = req.method().clone();
+    let uri = req.uri().clone();
+    let version = req.version();
+    let headers_snapshot = req.headers().clone();
+    let body_is_reusable = req.body().is_end_stream();
+
     // release read lock before IO
     drop(route_table);
 
@@ -217,21 +221,45 @@ pub async fn proxy_handler(
     // Retries: at least 1 attempt
     let retries = cluster_rules.retries.max(1) as usize;
     let mut last_err: Option<String> = None;
-    let mut response: Option<hyper::Response<hyper::Body>> = None;
+    let mut response: Option<Response<Incoming>> = None;
+    let mut first_request = Some(req.map(|b| b.boxed()));
 
-    for _ in 0..retries {
-        match client
-            .request(req.map(|b| b.boxed()))
-            .timeout(timeout)
-            .await
-        {
-            Ok(resp) => {
+    for attempt in 0..retries {
+        let request = if let Some(req) = first_request.take() {
+            req
+        } else if body_is_reusable {
+            let body = Full::new(Bytes::new())
+                .map_err(|never: Infallible| match never {})
+                .boxed();
+            let mut builder = Request::builder()
+                .method(method.clone())
+                .uri(uri.clone())
+                .version(version);
+            let mut retry_req = builder
+                .body(body)
+                .expect("retry request build must succeed");
+            *retry_req.headers_mut() = headers_snapshot.clone();
+            retry_req
+        } else {
+            break;
+        };
+
+        match client.request(request).timeout(timeout).await {
+            Ok(Ok(resp)) => {
                 response = Some(resp);
                 break;
             }
-            Err(e) => {
+            Ok(Err(e)) => {
                 last_err = Some(format!("Upstream connector error ({}): {:?}", e, addr));
-                // try next attempt
+                if attempt + 1 == retries {
+                    break;
+                }
+            }
+            Err(e) => {
+                last_err = Some(format!("Upstream connector timeout ({}): {:?}", e, addr));
+                if attempt + 1 == retries {
+                    break;
+                }
             }
         }
     }

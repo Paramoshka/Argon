@@ -39,6 +39,17 @@ Valid range: 1–120000 ms (values outside are clamped or rejected; see controll
 On timeout, the proxy returns 504 Gateway Timeout to the client.
 
 ---
+> argon.github.io/backend-retries
+
+Total number of attempts the proxy should make per request when contacting the backend. Includes the initial try; set to `1` to disable retries.
+
+- Type: integer (quote in YAML) — `"1"`, `"2"`, etc.
+- Default: `1`
+- Allowed range: 1–10 (values outside the range are clamped to the nearest bound)
+
+Retries are only issued when the proxy can safely replay the request (e.g., the body has already been fully read). Timeout and connector failures are retried until the limit is reached.
+
+---
 > argon.github.io/lb-algorithm
 
 Controls how Argon distributes requests across endpoints within a backend cluster.

@@ -2,8 +2,18 @@ apiVersion: v1
 entries:
   argon:
   - apiVersion: v2
+    appVersion: 0.4.1
+    created: "2025-11-02T15:00:53.627853114+03:00"
+    description: A Helm chart for Kubernetes
+    digest: feae787e3d854936bf4c0ead1f84cea14065ffe70c7e40aa3451b63ae95dfd22
+    name: argon
+    type: application
+    urls:
+    - https://github.com/Paramoshka/Argon/tree/main/.deploy/argon-0.4.1.tgz
+    version: 0.4.1
+  - apiVersion: v2
     appVersion: 0.4.0
-    created: "2025-10-26T19:23:33.981752541+07:00"
+    created: "2025-11-02T15:00:53.627486378+03:00"
     description: A Helm chart for Kubernetes
     digest: b8f81a0aa17e9e01261696313e1f571227d5acbe89e0d47e2c154dbbee113907
     name: argon
@@ -13,7 +23,7 @@ entries:
     version: 0.4.0
   - apiVersion: v2
     appVersion: 0.3.0
-    created: "2025-10-26T19:23:33.980970742+07:00"
+    created: "2025-11-02T15:00:53.626987844+03:00"
     description: A Helm chart for Kubernetes
     digest: dcb4dbf0535d1559e7a5da2e7cfa8fb8208be6a748d760ed469b3a6315284563
     name: argon
@@ -23,7 +33,7 @@ entries:
     version: 0.3.0
   - apiVersion: v2
     appVersion: 0.2.0
-    created: "2025-10-26T19:23:33.979782319+07:00"
+    created: "2025-11-02T15:00:53.626382041+03:00"
     description: A Helm chart for Kubernetes
     digest: 7719d2be3ccdbcbc90af53f0a25f76bd8073a96f82c8a3269bd5a78930793fb4
     name: argon
@@ -33,7 +43,7 @@ entries:
     version: 0.2.0
   - apiVersion: v2
     appVersion: 0.1.0
-    created: "2025-10-26T19:23:33.978757659+07:00"
+    created: "2025-11-02T15:00:53.625687027+03:00"
     description: A Helm chart for Kubernetes
     digest: 1c82e860a46dfd0287313e5d92f1e112bb6ce8c6f9b2575ea2e4f70d5490d71e
     name: argon
@@ -41,4 +51,4 @@ entries:
     urls:
     - https://github.com/Paramoshka/Argon/tree/main/.deploy/argon-0.1.0.tgz
     version: 0.1.0
-generated: "2025-10-26T19:23:33.976881051+07:00"
+generated: "2025-11-02T15:00:53.624876096+03:00"

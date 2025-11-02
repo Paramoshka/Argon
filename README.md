@@ -49,24 +49,18 @@ How to configure Ingress (annotations, timeouts, backend protocols) — see **do
 
 * ✅ Go control-plane → streaming Snapshots
 
-* ✅ Rust data-plane → proxy, health/readiness, RR LB
+* ✅ Rust data-plane → proxy, health/readiness, RR LB, LeastConn
 
-* ✅ HTTP/2|TLS upstreams, per-route timeouts
+* ✅ HTTP/2|TLS upstreams, per-route timeouts, retries
 
 * ✅ mTLS between planes
 
 * ✅ Dex auth
 
-* ⏳ Metrics & OpenTelemetry
-
-* ⏳ Canary/weights, headers/rewrites
-
 ---
 ## Changelog
 
-### v0.3.0
-- Default mTLS between the control-plane and data-plane gRPC channel; certificates are generated and rotated by the controller and mounted into the dataplane DaemonSet.
-- Helm chart packaged into the `.deploy/` repository (`helm package helm --destination .deploy`) so `helm repo add argon https://raw.githubusercontent.com/Paramoshka/Argon/main/.deploy` keeps serving the release artifacts.
+See [CHANGELOG.md](./CHANGELOG.md) for detailed release notes.
 
 ---
 ## License

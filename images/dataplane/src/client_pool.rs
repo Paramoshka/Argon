@@ -17,7 +17,7 @@ pub struct ClientPool {
     pub connector_insecure: Client<HttpsConnector<HttpConnector>, BoxBody<Bytes, hyper::Error>>,
 }
 
-const DEFAULT_COUNT_POOL: usize = 1024;
+const DEFAULT_COUNT_POOL: usize = 32;
 const DEFAULT_IDLE_TIMEOUT: u64 = 60;
 
 impl ClientPool {

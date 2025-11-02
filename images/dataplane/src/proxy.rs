@@ -1,5 +1,6 @@
 use crate::AppState;
 use crate::snapshot::{BackendProtocol, HeaderRewriteMode, HeaderRewriteRule, SelectedEndpoint};
+use anyhow::Ok;
 use bytes::Bytes;
 use http::uri::{Authority, PathAndQuery};
 use http::{HeaderMap, HeaderName, HeaderValue, StatusCode, Uri, Version, header};
@@ -12,6 +13,7 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
+use tokio::time::sleep;
 use tokio_util::future::FutureExt;
 
 #[derive(Clone, Copy, Debug)]
@@ -186,7 +188,7 @@ pub async fn proxy_handler(
         }
     }
 
-    // handle req
+    // handle req (prepare headers/authority for selected endpoint)
     handle_req_upstream(
         &mut req,
         &host,
@@ -200,7 +202,7 @@ pub async fn proxy_handler(
         apply_header_rewrites(req.headers_mut(), header_rewrites.as_ref());
     }
 
-    // lease read lock
+    // release read lock before IO
     drop(route_table);
 
     let addr = format!("{}:{}", ep.address, ep.port);
@@ -211,19 +213,35 @@ pub async fn proxy_handler(
     } else {
         &pool.connector
     };
-    let Ok(req) = client
-        .request(req.map(|b| b.boxed()))
-        .timeout(timeout)
-        .await
-    else {
-        let err_text = format!("Upstream connector timed out: {:?}", addr);
-        return Ok(text(StatusCode::BAD_GATEWAY, err_text));
-    };
 
-    let mut resp = match req {
-        Ok(resp) => resp,
-        Err(e) => {
-            return Ok(text(StatusCode::BAD_GATEWAY, e.to_string()));
+    // Retries: at least 1 attempt
+    let retries = cluster_rules.retries.max(1) as usize;
+    let mut last_err: Option<String> = None;
+    let mut response: Option<hyper::Response<hyper::Body>> = None;
+
+    for _ in 0..retries {
+        match client
+            .request(req.map(|b| b.boxed()))
+            .timeout(timeout)
+            .await
+        {
+            Ok(resp) => {
+                response = Some(resp);
+                break;
+            }
+            Err(e) => {
+                last_err = Some(format!("Upstream connector error ({}): {:?}", e, addr));
+                // try next attempt
+            }
+        }
+    }
+
+    let mut resp = match response {
+        Some(resp) => resp,
+        None => {
+            let err_text =
+                last_err.unwrap_or_else(|| format!("Upstream connector timed out: {:?}", addr));
+            return Ok(text(StatusCode::BAD_GATEWAY, err_text));
         }
     };
 

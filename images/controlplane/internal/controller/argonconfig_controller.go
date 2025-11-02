@@ -112,8 +112,7 @@ func (r *ArgonConfigReconciler) parseEndpoints(ctx context.Context, ingList *net
 		logger.V(1).Info("processing ingress", "ns", ing.Namespace, "name", ing.Name)
 		annotations := ing.GetAnnotations()
 
-		targetEndpoint := parseAnnotations(annotations)
-		targetEndpoint.Retries = 1 // TODO
+    targetEndpoint := parseAnnotations(annotations)
 
 		// tls
 		bundle := r.buildTLSBundle(ctx, ing)

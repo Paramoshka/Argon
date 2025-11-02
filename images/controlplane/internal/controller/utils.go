@@ -109,7 +109,7 @@ func getRequestHeaders(reqHeadersRaw string) ([]RewriteHeaders, error) {
 
 func parseAnnotations(annotations map[string]string) *TargetEndpoint {
 
-	te := &TargetEndpoint{}
+    te := &TargetEndpoint{}
 
 	backendProtocol := "h1"
 	if _, exists := annotations[BACKEND_PROTOCOL_ANNOTATION]; exists {
@@ -117,11 +117,25 @@ func parseAnnotations(annotations map[string]string) *TargetEndpoint {
 	}
 	te.BackendProtocol = backendProtocol
 
-	backendTimeout := 3000
-	if _, exists := annotations[BACKEND_TIMEOUT_ANNOTATION]; exists {
-		backendTimeout, _ = strconv.Atoi(annotations[BACKEND_TIMEOUT_ANNOTATION])
-	}
-	te.TimeoutMs = int32(backendTimeout)
+    backendTimeout := 3000
+    if _, exists := annotations[BACKEND_TIMEOUT_ANNOTATION]; exists {
+        backendTimeout, _ = strconv.Atoi(annotations[BACKEND_TIMEOUT_ANNOTATION])
+    }
+    te.TimeoutMs = int32(backendTimeout)
+
+    // Retries per backend (default 1). Clamp to sane range [1..10].
+    backendRetries := 1
+    if raw, exists := annotations[BACKEND_RETRIES_ANNOTATION]; exists {
+        if v, err := strconv.Atoi(raw); err == nil {
+            backendRetries = v
+        }
+    }
+    if backendRetries < 1 {
+        backendRetries = 1
+    } else if backendRetries > 10 {
+        backendRetries = 10
+    }
+    te.Retries = int32(backendRetries)
 
 	var reqheaders []RewriteHeaders
 	if rawReqHeaders, ok := annotations[REQUEST_HEADERS_ANNOTATION]; ok {
@@ -176,9 +190,9 @@ func parseAnnotations(annotations map[string]string) *TargetEndpoint {
 		}
 		auth.CookieName = strings.TrimSpace(rawCookie)
 	}
-	te.Auth = auth
+    te.Auth = auth
 
-	return te
+    return te
 }
 
 // buildTargetFromRule converts a single Ingress rule into a TargetProxy using EndpointSlices.

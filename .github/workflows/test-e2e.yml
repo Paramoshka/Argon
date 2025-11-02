@@ -9,8 +9,16 @@ jobs:
     name: Run on Self-hosted Linux
     runs-on: [self-hosted, linux, x64]
     steps:
+      - name: Clone the code
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: images/controlplane/go.mod
 
       # Use the runner's default kubeconfig/context; no kind cluster
+
       - name: Install kubectl if missing (no sudo)
         shell: bash
         run: |

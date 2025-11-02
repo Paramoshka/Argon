@@ -1,12 +1,18 @@
 use crate::AppState;
-use crate::snapshot::{BackendProtocol, HeaderRewriteMode, HeaderRewriteRule, SelectedEndpoint};
+use crate::snapshot::{
+    AuthConfigDex, BackendProtocol, ClusterRule, HeaderRewriteMode, HeaderRewriteRule, RouteRule,
+    RouteTable, SelectedEndpoint,
+};
 use bytes::Bytes;
 use http::uri::{Authority, PathAndQuery};
-use http::{HeaderMap, HeaderName, HeaderValue, StatusCode, Uri, Version, header};
+use http::{HeaderMap, HeaderName, HeaderValue, Method, StatusCode, Uri, Version, header};
 use http_body_util::Full;
 use http_body_util::{BodyExt, combinators::BoxBody};
 use hyper::body::{Body, Incoming};
 use hyper::{Request, Response};
+use hyper_rustls::HttpsConnector;
+use hyper_util::client::legacy::Client;
+use hyper_util::client::legacy::connect::HttpConnector;
 use std::convert::Infallible;
 use std::str::FromStr;
 use std::sync::Arc;
@@ -16,6 +22,9 @@ use tokio_util::future::FutureExt;
 
 #[derive(Clone, Copy, Debug)]
 pub struct FrontendTls(pub bool);
+
+type ProxyResponse = Response<BoxBody<Bytes, hyper::Error>>;
+type ProxyResult<T> = Result<T, ProxyResponse>;
 
 // hop-by-hop headers that cannot be proxied (RFC 7230)
 
@@ -43,56 +52,30 @@ pub async fn proxy_handler(
         .get::<FrontendTls>()
         .map(|f| f.0)
         .unwrap_or(false);
-    let route_table = state.route_table.read().await;
+    let route_table_guard = state.route_table.read().await;
+    let route_table = &**route_table_guard;
 
-    // <--Get host-->
-    let host = if let Some(h) = req.headers().get(header::HOST) {
-        match h.to_str() {
-            Ok(s) if !s.is_empty() => match Authority::try_from(s.trim()) {
-                Ok(a) => a
-                    .host()
-                    .to_ascii_lowercase()
-                    .trim_end_matches('.')
-                    .to_string(),
-                Err(_) => return Ok(text(StatusCode::BAD_REQUEST, "Invalid Host header")),
-            },
-            _ => return Ok(text(StatusCode::BAD_REQUEST, "Invalid Host header")),
-        }
-    } else if let Some(h) = req.uri().host() {
-        h.to_string()
-    } else {
-        return Ok(text(StatusCode::BAD_REQUEST, "Missing Host"));
+    let host = match extract_host(&req) {
+        Ok(h) => h,
+        Err(resp) => return Ok(resp),
     };
 
-    // <--Get Path-->
     let path = req.uri().path();
 
-    // <--Find rule for req-->
-    let rule = match route_table.choose_route(&host, path) {
-        Some(r) => r,
-        None => {
-            tracing::warn!(%host, %path, "route not found");
-            return Ok(text(StatusCode::NOT_FOUND, "route not found"));
-        }
+    let rule = match resolve_route(route_table, &host, path) {
+        Ok(r) => r,
+        Err(resp) => return Ok(resp),
     };
 
-    // <--Get cluster rules-->
-    let cluster_rules = match route_table.get_cluster_rules(rule.cluster.as_str()) {
-        Some(r) => r,
-        None => {
-            tracing::error!(cluster=%rule.cluster, "cluster rule not found");
-            return Ok(text(StatusCode::NOT_FOUND, "cluster rules not found"));
-        }
+    let cluster_rules = match resolve_cluster(route_table, rule) {
+        Ok(r) => r,
+        Err(resp) => return Ok(resp),
     };
     let header_rewrites = cluster_rules.request_headers.clone();
 
-    // <--Select LB algorithm-->
-    let selection = match route_table.get_endpoint(rule.cluster.as_str()) {
-        Some(e) => e,
-        None => {
-            tracing::error!(cluster=%rule.cluster, "endpoint not found");
-            return Ok(text(StatusCode::BAD_GATEWAY, "endpoint not found"));
-        }
+    let selection = match resolve_endpoint(route_table, rule) {
+        Ok(sel) => sel,
+        Err(resp) => return Ok(resp),
     };
 
     let SelectedEndpoint {
@@ -101,88 +84,21 @@ pub async fn proxy_handler(
     } = selection;
     let _active_counter = ActiveConnGuard::new(counter);
 
+    drop(route_table_guard);
+
     // subrequest if DEX AUTH enabled
     if let Some(auth) = cluster_rules.auth.as_deref() {
-        let path = req.uri().path();
-        if auth.skip_paths.iter().any(|p| path.starts_with(p)) {
-            // skip
-        } else {
-            // Optional fast-path: if a cookie name is configured and the cookie
-            // is absent, redirect to signin immediately.
-            if let Some(cookie_name) = &auth.cookie_name {
-                if let Some(cookies_val) = req.headers().get(header::COOKIE) {
-                    if let Ok(cookies) = cookies_val.to_str() {
-                        let needle = format!("{}=", cookie_name);
-                        if !cookies.contains(&needle) {
-                            if let Some(signin) = &auth.signin {
-                                let location = build_signin_location(
-                                    signin,
-                                    &host,
-                                    req.uri(),
-                                    frontend_is_tls,
-                                );
-                                return Ok(redirect(StatusCode::FOUND, &location));
-                            }
-                        }
-                    }
-                } else if let Some(signin) = &auth.signin {
-                    let location = build_signin_location(signin, &host, req.uri(), frontend_is_tls);
-                    return Ok(redirect(StatusCode::FOUND, &location));
-                }
-            }
-
-            // check auth via subrequest to auth-url
-            let pool = state.client_pool.load();
-            let client = if cluster_rules.backend_tls_insecure_skip_verify {
-                &pool.connector_insecure
-            } else {
-                &pool.connector
-            };
-
-            if let Some(auth_url) = &auth.url {
-                if let Ok(uri) = Uri::from_str(auth_url.as_str()) {
-                    let auth_req = build_auth_request(&req, uri, &host, frontend_is_tls);
-                    let auth_resp = match client.request(auth_req).await {
-                        Ok(r) => r,
-                        Err(e) => {
-                            let err_text = format!(
-                                "Authorization subrequest failed: {:?} : {:?}",
-                                auth_url, e
-                            );
-                            return Ok(text(StatusCode::BAD_GATEWAY, err_text));
-                        }
-                    };
-
-                    let status = auth_resp.status();
-                    if status.is_success() {
-                        // Copy configured headers from auth response into the upstream request
-                        for name in auth.response_headers.iter() {
-                            if let Ok(hn) = HeaderName::from_bytes(name.as_bytes()) {
-                                if let Some(val) = auth_resp.headers().get(&hn) {
-                                    req.headers_mut().insert(hn, val.clone());
-                                }
-                            }
-                        }
-                    } else if status == StatusCode::UNAUTHORIZED || status == StatusCode::FORBIDDEN
-                    {
-                        if let Some(signin) = &auth.signin {
-                            let location =
-                                build_signin_location(signin, &host, req.uri(), frontend_is_tls);
-                            return Ok(redirect(StatusCode::FOUND, &location));
-                        }
-                        return Ok(text(StatusCode::UNAUTHORIZED, "unauthorized"));
-                    } else {
-                        let err_text = format!("authorization service returned {}", status);
-                        return Ok(text(StatusCode::BAD_GATEWAY, err_text));
-                    }
-                } else {
-                    let err_text = format!("Invalid authorization URL: {}", auth_url);
-                    return Ok(text(StatusCode::BAD_GATEWAY, err_text));
-                }
-            } else {
-                let err_text = format!("Authorization URL not found for: {:?}", req.uri());
-                return Ok(text(StatusCode::BAD_GATEWAY, err_text));
-            }
+        if let Err(resp) = perform_auth_if_needed(
+            &mut req,
+            auth,
+            &state,
+            &host,
+            frontend_is_tls,
+            cluster_rules.backend_tls_insecure_skip_verify,
+        )
+        .await
+        {
+            return Ok(resp);
         }
     }
 
@@ -200,15 +116,10 @@ pub async fn proxy_handler(
         apply_header_rewrites(req.headers_mut(), header_rewrites.as_ref());
     }
 
-    let method = req.method().clone();
-    let uri = req.uri().clone();
-    let version = req.version();
-    let headers_snapshot = req.headers().clone();
-    let body_is_reusable = req.body().is_end_stream();
+    let request_snapshot = RequestSnapshot::capture(&req);
+    let initial_request = req.map(|b| b.boxed());
 
     // release read lock before IO
-    drop(route_table);
-
     let addr = format!("{}:{}", ep.address, ep.port);
     let pool = state.client_pool.load();
     let timeout = Duration::from_millis(cluster_rules.timeout_ms as u64);
@@ -220,62 +131,109 @@ pub async fn proxy_handler(
 
     // Retries: at least 1 attempt
     let retries = cluster_rules.retries.max(1) as usize;
-    let mut last_err: Option<String> = None;
-    let mut response: Option<Response<Incoming>> = None;
-    let mut first_request = Some(req.map(|b| b.boxed()));
-
-    for attempt in 0..retries {
-        let request = if let Some(req) = first_request.take() {
-            req
-        } else if body_is_reusable {
-            let body = Full::new(Bytes::new())
-                .map_err(|never: Infallible| match never {})
-                .boxed();
-            let mut builder = Request::builder()
-                .method(method.clone())
-                .uri(uri.clone())
-                .version(version);
-            let mut retry_req = builder
-                .body(body)
-                .expect("retry request build must succeed");
-            *retry_req.headers_mut() = headers_snapshot.clone();
-            retry_req
-        } else {
-            break;
-        };
-
-        match client.request(request).timeout(timeout).await {
-            Ok(Ok(resp)) => {
-                response = Some(resp);
-                break;
-            }
-            Ok(Err(e)) => {
-                last_err = Some(format!("Upstream connector error ({}): {:?}", e, addr));
-                if attempt + 1 == retries {
-                    break;
-                }
-            }
-            Err(e) => {
-                last_err = Some(format!("Upstream connector timeout ({}): {:?}", e, addr));
-                if attempt + 1 == retries {
-                    break;
-                }
-            }
-        }
-    }
-
-    let mut resp = match response {
-        Some(resp) => resp,
-        None => {
-            let err_text =
-                last_err.unwrap_or_else(|| format!("Upstream connector timed out: {:?}", addr));
-            return Ok(text(StatusCode::BAD_GATEWAY, err_text));
-        }
+    let mut resp = match forward_to_upstream(
+        initial_request,
+        client,
+        timeout,
+        retries,
+        &request_snapshot,
+        &addr,
+    )
+    .await
+    {
+        Ok(resp) => resp,
+        Err(err) => return Ok(text(StatusCode::BAD_GATEWAY, err)),
     };
 
     remove_hop_headers(resp.headers_mut());
 
     Ok(resp.map(|b| b.boxed()))
+}
+
+async fn perform_auth_if_needed(
+    req: &mut Request<Incoming>,
+    auth: &AuthConfigDex,
+    state: &AppState,
+    host: &str,
+    frontend_is_tls: bool,
+    backend_tls_insecure_skip_verify: bool,
+) -> ProxyResult<()> {
+    let path = req.uri().path();
+    if auth.skip_paths.iter().any(|p| path.starts_with(p)) {
+        return Ok(());
+    }
+
+    if let Some(cookie_name) = &auth.cookie_name {
+        if let Some(cookies_val) = req.headers().get(header::COOKIE) {
+            if let Ok(cookies) = cookies_val.to_str() {
+                let needle = format!("{}=", cookie_name);
+                if !cookies.contains(&needle) {
+                    if let Some(signin) = &auth.signin {
+                        let location =
+                            build_signin_location(signin, host, req.uri(), frontend_is_tls);
+                        return Err(redirect(StatusCode::FOUND, &location));
+                    }
+                }
+            }
+        } else if let Some(signin) = &auth.signin {
+            let location = build_signin_location(signin, host, req.uri(), frontend_is_tls);
+            return Err(redirect(StatusCode::FOUND, &location));
+        }
+    }
+
+    let pool = state.client_pool.load();
+    let client = if backend_tls_insecure_skip_verify {
+        &pool.connector_insecure
+    } else {
+        &pool.connector
+    };
+
+    let auth_url = match &auth.url {
+        Some(url) => url,
+        None => {
+            let err_text = format!("Authorization URL not found for: {:?}", req.uri());
+            return Err(text(StatusCode::BAD_GATEWAY, err_text));
+        }
+    };
+
+    let uri = match Uri::from_str(auth_url.as_str()) {
+        Ok(u) => u,
+        Err(_) => {
+            let err_text = format!("Invalid authorization URL: {}", auth_url);
+            return Err(text(StatusCode::BAD_GATEWAY, err_text));
+        }
+    };
+
+    let auth_req = build_auth_request(req, uri, host, frontend_is_tls);
+    let auth_resp = match client.request(auth_req).await {
+        Ok(r) => r,
+        Err(e) => {
+            let err_text = format!("Authorization subrequest failed: {:?} : {:?}", auth_url, e);
+            return Err(text(StatusCode::BAD_GATEWAY, err_text));
+        }
+    };
+
+    let status = auth_resp.status();
+    if status.is_success() {
+        // Copy configured headers from auth response into the upstream request
+        for name in auth.response_headers.iter() {
+            if let Ok(hn) = HeaderName::from_bytes(name.as_bytes()) {
+                if let Some(val) = auth_resp.headers().get(&hn) {
+                    req.headers_mut().insert(hn, val.clone());
+                }
+            }
+        }
+        Ok(())
+    } else if status == StatusCode::UNAUTHORIZED || status == StatusCode::FORBIDDEN {
+        if let Some(signin) = &auth.signin {
+            let location = build_signin_location(signin, host, req.uri(), frontend_is_tls);
+            return Err(redirect(StatusCode::FOUND, &location));
+        }
+        Err(text(StatusCode::UNAUTHORIZED, "unauthorized"))
+    } else {
+        let err_text = format!("authorization service returned {}", status);
+        Err(text(StatusCode::BAD_GATEWAY, err_text))
+    }
 }
 
 fn build_auth_request(
@@ -501,4 +459,142 @@ impl Drop for ActiveConnGuard {
             c.fetch_sub(1, Ordering::Relaxed);
         }
     }
+}
+
+struct RequestSnapshot {
+    method: Method,
+    uri: Uri,
+    version: Version,
+    headers: HeaderMap,
+    body_is_reusable: bool,
+}
+
+impl RequestSnapshot {
+    fn capture(req: &Request<Incoming>) -> Self {
+        Self {
+            method: req.method().clone(),
+            uri: req.uri().clone(),
+            version: req.version(),
+            headers: req.headers().clone(),
+            body_is_reusable: req.body().is_end_stream(),
+        }
+    }
+}
+
+fn extract_host(req: &Request<Incoming>) -> ProxyResult<String> {
+    if let Some(h) = req.headers().get(header::HOST) {
+        match h.to_str() {
+            Ok(s) if !s.is_empty() => match Authority::try_from(s.trim()) {
+                Ok(a) => Ok(a
+                    .host()
+                    .to_ascii_lowercase()
+                    .trim_end_matches('.')
+                    .to_string()),
+                Err(_) => Err(text(StatusCode::BAD_REQUEST, "Invalid Host header")),
+            },
+            _ => Err(text(StatusCode::BAD_REQUEST, "Invalid Host header")),
+        }
+    } else if let Some(h) = req.uri().host() {
+        Ok(h.to_string())
+    } else {
+        Err(text(StatusCode::BAD_REQUEST, "Missing Host"))
+    }
+}
+
+fn resolve_route<'a>(
+    route_table: &'a RouteTable,
+    host: &str,
+    path: &str,
+) -> ProxyResult<&'a RouteRule> {
+    match route_table.choose_route(host, path) {
+        Some(rule) => Ok(rule),
+        None => {
+            tracing::warn!(%host, %path, "route not found");
+            Err(text(StatusCode::NOT_FOUND, "route not found"))
+        }
+    }
+}
+
+fn resolve_cluster(route_table: &RouteTable, rule: &RouteRule) -> ProxyResult<Arc<ClusterRule>> {
+    match route_table.get_cluster_rules(rule.cluster.as_str()) {
+        Some(cluster) => Ok(cluster),
+        None => {
+            tracing::error!(cluster=%rule.cluster, "cluster rule not found");
+            Err(text(StatusCode::NOT_FOUND, "cluster rules not found"))
+        }
+    }
+}
+
+fn resolve_endpoint(route_table: &RouteTable, rule: &RouteRule) -> ProxyResult<SelectedEndpoint> {
+    match route_table.get_endpoint(rule.cluster.as_str()) {
+        Some(endpoint) => Ok(endpoint),
+        None => {
+            tracing::error!(cluster=%rule.cluster, "endpoint not found");
+            Err(text(StatusCode::BAD_GATEWAY, "endpoint not found"))
+        }
+    }
+}
+
+async fn forward_to_upstream(
+    initial_request: Request<BoxBody<Bytes, hyper::Error>>,
+    client: &Client<HttpsConnector<HttpConnector>, BoxBody<Bytes, hyper::Error>>,
+    timeout: Duration,
+    retries: usize,
+    snapshot: &RequestSnapshot,
+    addr: &str,
+) -> Result<Response<Incoming>, String> {
+    let mut last_err: Option<String> = None;
+    let mut response: Option<Response<Incoming>> = None;
+    let mut first_request = Some(initial_request);
+
+    for attempt in 0..retries {
+        let request = if let Some(req) = first_request.take() {
+            req
+        } else if snapshot.body_is_reusable {
+            build_retry_request(snapshot)
+        } else {
+            break;
+        };
+
+        match client.request(request).timeout(timeout).await {
+            Ok(Ok(resp)) => {
+                response = Some(resp);
+                break;
+            }
+            Ok(Err(e)) => {
+                last_err = Some(format!("Upstream connector error ({}): {:?}", e, addr));
+                if attempt + 1 == retries {
+                    break;
+                }
+            }
+            Err(e) => {
+                last_err = Some(format!("Upstream connector timeout ({}): {:?}", e, addr));
+                if attempt + 1 == retries {
+                    break;
+                }
+            }
+        }
+    }
+
+    match response {
+        Some(resp) => Ok(resp),
+        None => {
+            Err(last_err.unwrap_or_else(|| format!("Upstream connector timed out: {:?}", addr)))
+        }
+    }
+}
+
+fn build_retry_request(snapshot: &RequestSnapshot) -> Request<BoxBody<Bytes, hyper::Error>> {
+    let body = Full::new(Bytes::new())
+        .map_err(|never: Infallible| match never {})
+        .boxed();
+    let builder = Request::builder()
+        .method(snapshot.method.clone())
+        .uri(snapshot.uri.clone())
+        .version(snapshot.version);
+    let mut retry_req = builder
+        .body(body)
+        .expect("retry request build must succeed");
+    *retry_req.headers_mut() = snapshot.headers.clone();
+    retry_req
 }

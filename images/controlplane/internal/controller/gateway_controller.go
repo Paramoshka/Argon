@@ -4,38 +4,72 @@ import (
 	"context"
 
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	gwapiv1 "sigs.k8s.io/gateway-api/apis/v1"
+	gwapiv1alpha2 "sigs.k8s.io/gateway-api/apis/v1alpha2"
+	gwapiv1beta1 "sigs.k8s.io/gateway-api/apis/v1beta1"
 )
 
 type ArgonConfigReconcilerGatewayAPI struct {
 	client.Client
+	GatewayClass string
 }
 
 func (r *ArgonConfigReconcilerGatewayAPI) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	return ctrl.Result{}, nil
 }
 
-func SetupGatewayController(mgr ctrl.Manager) error {
+func SetupGatewayController(mgr ctrl.Manager, gatewayClassName string) error {
 	reconciler := &ArgonConfigReconcilerGatewayAPI{
-		Client: mgr.GetClient(),
+		Client:       mgr.GetClient(),
+		GatewayClass: gatewayClassName,
 	}
 
+	gatewayPredicate := predicate.NewPredicateFuncs(func(obj client.Object) bool {
+		if gatewayClassName == "" {
+			return true
+		}
+
+		gw, ok := obj.(*gwapiv1.Gateway)
+		if !ok {
+			return true
+		}
+
+		return string(gw.Spec.GatewayClassName) == gatewayClassName
+	})
+
+	gatewayClassPredicate := predicate.NewPredicateFuncs(func(obj client.Object) bool {
+		if gatewayClassName == "" {
+			return true
+		}
+
+		return obj.GetName() == gatewayClassName
+	})
+
 	ctrlBuilder := ctrl.NewControllerManagedBy(mgr).
-		For(&gwapiv1.Gateway{})
+		Named("gateway-controller").
+		For(&gwapiv1.Gateway{}, builder.WithPredicates(gatewayPredicate))
+
+	ctrlBuilder = ctrlBuilder.Watches(
+		&gwapiv1.GatewayClass{},
+		&handler.EnqueueRequestForObject{},
+		builder.WithPredicates(gatewayClassPredicate),
+	)
 
 	watchedTypes := []client.Object{
-		&gwapiv1.GatewayClass{},
 		&gwapiv1.HTTPRoute{},
-		&gwapiv1.TCPRoute{},
-		&gwapiv1.TLSRoute{},
-		&gwapiv1.UDPRoute{},
-		&gwapiv1.ReferenceGrant{},
+		&gwapiv1alpha2.TCPRoute{},
+		&gwapiv1alpha2.TLSRoute{},
+		&gwapiv1alpha2.UDPRoute{},
+		&gwapiv1beta1.ReferenceGrant{},
 	}
 
 	for _, watchType := range watchedTypes {
-		ctrlBuilder.Watches(watchType,
+		ctrlBuilder = ctrlBuilder.Watches(
+			watchType,
 			&handler.EnqueueRequestForObject{},
 		)
 	}

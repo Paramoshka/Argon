@@ -4,7 +4,7 @@ Short version: a minimal, fast ingress controller split into a Go control-plane 
 
 ---
 
-### Quick start
+### Quick start ⏰
 
 1) helm repo add argon https://raw.githubusercontent.com/Paramoshka/Argon/main/.deploy
 2) helm repo update
@@ -56,6 +56,8 @@ How to configure Ingress (annotations, timeouts, backend protocols) — see **do
 * ✅ mTLS between planes
 
 * ✅ Dex auth
+
+* ⌛ GatewayAPI
 
 ---
 ## Changelog

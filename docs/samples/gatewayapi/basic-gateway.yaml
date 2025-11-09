@@ -1,0 +1,207 @@
+# Basic Gateway API sample for Argon. Adjust names/namespaces to match your cluster.
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: argon-gateway-sample
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: argon-backends
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: GatewayClass
+metadata:
+  name: argon-sample-gatewayclass
+spec:
+  controllerName: argon.dev/gateway-controller
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: argon-sample-gateway
+  namespace: argon-gateway-sample
+  labels:
+    app.kubernetes.io/name: argon-gateway-sample
+spec:
+  gatewayClassName: argon-sample-gatewayclass
+  listeners:
+  - name: http
+    protocol: HTTP
+    port: 80
+    hostname: http.sample.argon.local
+    allowedRoutes:
+      namespaces:
+        from: All
+  - name: tcp
+    protocol: TCP
+    port: 9000
+    allowedRoutes:
+      namespaces:
+        from: All
+  - name: tls
+    protocol: TLS
+    port: 9443
+    tls:
+      mode: Passthrough
+    allowedRoutes:
+      namespaces:
+        from: All
+  - name: udp
+    protocol: UDP
+    port: 5353
+    allowedRoutes:
+      namespaces:
+        from: All
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: sample-http-route
+  namespace: argon-gateway-sample
+spec:
+  parentRefs:
+  - name: argon-sample-gateway
+    sectionName: http
+  hostnames:
+  - http.sample.argon.local
+  rules:
+  - matches:
+    - path:
+        type: PathPrefix
+        value: /
+    backendRefs:
+    - name: sample-backend
+      namespace: argon-backends
+      port: 8080
+---
+apiVersion: gateway.networking.k8s.io/v1alpha2
+kind: TCPRoute
+metadata:
+  name: sample-tcp-route
+  namespace: argon-gateway-sample
+spec:
+  parentRefs:
+  - name: argon-sample-gateway
+    sectionName: tcp
+  rules:
+  - backendRefs:
+    - name: sample-backend
+      namespace: argon-backends
+      port: 9000
+---
+apiVersion: gateway.networking.k8s.io/v1alpha2
+kind: TLSRoute
+metadata:
+  name: sample-tls-route
+  namespace: argon-gateway-sample
+spec:
+  parentRefs:
+  - name: argon-sample-gateway
+    sectionName: tls
+  hostnames:
+  - tls.sample.argon.local
+  rules:
+  - backendRefs:
+    - name: sample-backend
+      namespace: argon-backends
+      port: 9443
+---
+apiVersion: gateway.networking.k8s.io/v1alpha2
+kind: UDPRoute
+metadata:
+  name: sample-udp-route
+  namespace: argon-gateway-sample
+spec:
+  parentRefs:
+  - name: argon-sample-gateway
+    sectionName: udp
+  rules:
+  - backendRefs:
+    - name: sample-backend
+      namespace: argon-backends
+      port: 5353
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: sample-backend
+  namespace: argon-backends
+spec:
+  selector:
+    app: sample-backend
+  ports:
+  - name: http
+    port: 8080
+    targetPort: 8080
+    protocol: TCP
+  - name: tcp
+    port: 9000
+    targetPort: 9000
+    protocol: TCP
+  - name: tls
+    port: 9443
+    targetPort: 9443
+    protocol: TCP
+  - name: udp
+    port: 5353
+    targetPort: 5353
+    protocol: UDP
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sample-backend
+  namespace: argon-backends
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: sample-backend
+  template:
+    metadata:
+      labels:
+        app: sample-backend
+    spec:
+      containers:
+      - name: sample-backend
+        image: ghcr.io/projectcontour/contour-echo:main
+        args:
+        - --tcp=9000
+        - --http=8080
+        - --https=9443
+        - --udp=5353
+        ports:
+        - containerPort: 8080
+          protocol: TCP
+        - containerPort: 9000
+          protocol: TCP
+        - containerPort: 9443
+          protocol: TCP
+        - containerPort: 5353
+          protocol: UDP
+---
+apiVersion: gateway.networking.k8s.io/v1beta1
+kind: ReferenceGrant
+metadata:
+  name: allow-gateway-cross-namespace
+  namespace: argon-backends
+spec:
+  from:
+  - group: gateway.networking.k8s.io
+    kind: HTTPRoute
+    namespace: argon-gateway-sample
+  - group: gateway.networking.k8s.io
+    kind: TCPRoute
+    namespace: argon-gateway-sample
+  - group: gateway.networking.k8s.io
+    kind: TLSRoute
+    namespace: argon-gateway-sample
+  - group: gateway.networking.k8s.io
+    kind: UDPRoute
+    namespace: argon-gateway-sample
+  to:
+  - group: ""
+    kind: Service
+    name: sample-backend

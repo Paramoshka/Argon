@@ -13,16 +13,43 @@ import (
 	gwapiv1beta1 "sigs.k8s.io/gateway-api/apis/v1beta1"
 )
 
+const gatewayClassIndexKey = "spec.gatewayClassName"
+
 type ArgonConfigReconcilerGatewayAPI struct {
 	client.Client
 	GatewayClass string
 }
 
 func (r *ArgonConfigReconcilerGatewayAPI) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+
+	gwList := &gwapiv1.GatewayList{}
+	if err := r.Client.List(ctx, gwList, client.MatchingFields{
+		gatewayClassIndexKey: r.GatewayClass,
+	}); err != nil {
+		return ctrl.Result{}, err
+	}
+
 	return ctrl.Result{}, nil
 }
 
 func SetupGatewayController(mgr ctrl.Manager, gatewayClassName string) error {
+
+	if err := mgr.GetFieldIndexer().IndexField(
+		context.Background(),
+		&gwapiv1.Gateway{},
+		gatewayClassIndexKey,
+		func(obj client.Object) []string {
+			gw := obj.(*gwapiv1.Gateway)
+			if gw.Spec.GatewayClassName == "" {
+				return []string{}
+			}
+			v := string(gw.Spec.GatewayClassName)
+			return []string{v}
+		},
+	); err != nil {
+		return err
+	}
+
 	reconciler := &ArgonConfigReconcilerGatewayAPI{
 		Client:       mgr.GetClient(),
 		GatewayClass: gatewayClassName,

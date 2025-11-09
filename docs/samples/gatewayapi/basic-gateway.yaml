@@ -3,19 +3,7 @@
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: argon-gateway-sample
----
-apiVersion: v1
-kind: Namespace
-metadata:
   name: argon-backends
----
-apiVersion: gateway.networking.k8s.io/v1
-kind: GatewayClass
-metadata:
-  name: argon-gatewayclass
-spec:
-  controllerName: argon.dev/gateway-controller
 ---
 apiVersion: gateway.networking.k8s.io/v1
 kind: Gateway

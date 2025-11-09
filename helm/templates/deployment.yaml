@@ -49,7 +49,8 @@ spec:
             {{- toYaml . | nindent 12 }}
             {{- end }}
           args:
-            - "--ingress-class={{ (include "helm.fullname" .) }}"
+            - "--ingress-class={{ .Values.ingressClass.name }}"
+            - "--gateway-class={{ .Values.gatewayClass.name }}"
             - "--leader-elect"
             - "--grpc-server-name={{ include "helm.fullname" . }}-controller.{{ .Release.Namespace }}"
             - "--health-probe-bind-address=:{{ .Values.controller.ports.healthz | default 8081 }}"

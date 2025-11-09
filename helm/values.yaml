@@ -10,6 +10,18 @@ ingressClass:
   #   name: "default"
   #   namespace: "argon-system"
 
+gatewayClass:
+  create: false
+  name: "argon-gateway"
+  controllerName: "argon.github.io/gateway-controller"
+  description: ""
+  parametersRef: {}
+  # parametersRef:
+  #   group: "gateway.networking.k8s.io"
+  #   kind: "GatewayConfig"
+  #   name: "default"
+  #   namespace: "argon-system"
+
 # ---------------------------
 # Controller (control-plane)
 # ---------------------------

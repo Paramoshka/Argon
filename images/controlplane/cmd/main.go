@@ -62,6 +62,7 @@ func main() {
 	var enableHTTP2 bool
 	var tlsOpts []func(*tls.Config)
 	var ingressClass string
+	var gatewayClass string
 	var configMapName string
 	var grpcServerName string
 	var namespaceName string
@@ -83,6 +84,7 @@ func main() {
 	flag.BoolVar(&enableHTTP2, "enable-http2", false,
 		"If set, HTTP/2 will be enabled for the metrics and webhook servers")
 	flag.StringVar(&ingressClass, "ingress-class", "argon", "The name ingress class used for the ingress controller.")
+	flag.StringVar(*gatewayClass, "gateway-class", "argon-gateway", "The name gateway class for gateway controller.")
 	flag.StringVar(&configMapName, "config", "", "The name of the configmap used for the ingress controller.")
 	flag.StringVar(&grpcServerName, "grpc-server-name", "argon", "The name of the grpc server used for the ingress controller.")
 	flag.StringVar(&namespaceName, "namespace", "argon", "The namespace used for the ingress controller.")

@@ -2,6 +2,9 @@ package controller
 
 import (
 	"context"
+	"fmt"
+	"net"
+	"net/netip"
 
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
@@ -28,6 +31,8 @@ func (r *ArgonConfigReconcilerGatewayAPI) Reconcile(ctx context.Context, req ctr
 	}); err != nil {
 		return ctrl.Result{}, err
 	}
+
+	snap, err := gatewayListToSnap(gwList)
 
 	return ctrl.Result{}, nil
 }
@@ -102,4 +107,64 @@ func SetupGatewayController(mgr ctrl.Manager, gatewayClassName string) error {
 	}
 
 	return ctrlBuilder.Complete(reconciler)
+}
+
+func gatewayListToSnap(gwList *gwapiv1.GatewayList) (any, error) {
+
+	for gwi := range gwList.Items {
+		gw := gwList.Items[gwi]
+		ipsList, err := getAddressesFromGateway(*gw)
+		if err != nil {
+			continue
+		}
+	}
+
+	return nil, nil
+}
+
+type NamedResolver interface {
+	ResolveNamed(ctx context.Context, name string) ([]netip.Addr, error)
+}
+
+func getAddressesFromGateway(
+	ctx context.Context,
+	gw *gwapiv1.Gateway,
+	dns *net.Resolver,
+	named NamedResolver,
+) ([]netip.Addr, error) {
+	if len(gw.Status.Addresses) == 0 {
+		return nil, fmt.Errorf("gateway %s has no addresses", gw.Name)
+	}
+
+	var ips []netip.Addr
+	for _, addr := range gw.Status.Addresses {
+		addrType := gwapiv1.IPAddressType
+		if addr.Type != nil {
+			addrType = *addr.Type
+		}
+
+		switch addrType {
+		case gwapiv1.IPAddressType:
+			ip, err := netip.ParseAddr(addr.Value)
+			if err != nil {
+				return nil, fmt.Errorf("gateway %s: invalid IP %q: %w", gw.Name, addr.Value, err)
+			}
+			ips = append(ips, ip)
+		case gwapiv1.HostnameAddressType:
+			resolved, err := dns.LookupNetIP(ctx, "ip", addr.Value)
+			if err != nil {
+				return nil, fmt.Errorf("gateway %s: hostname %q cannot be resolved: %w", gw.Name, addr.Value, err)
+			}
+			ips = append(ips, resolved...)
+		case gwapiv1.NamedAddressType:
+			resolved, err := named.ResolveNamed(ctx, addr.Value)
+			if err != nil {
+				return nil, fmt.Errorf("gateway %s: named address %q cannot be resolved: %w", gw.Name, addr.Value, err)
+			}
+			ips = append(ips, resolved...)
+		default:
+			return nil, fmt.Errorf("gateway %s: unsupported address type %q", gw.Name, addrType)
+		}
+	}
+	return ips, nil
 }

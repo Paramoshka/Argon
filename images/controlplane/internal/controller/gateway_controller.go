@@ -320,24 +320,35 @@ func setupHTTPRouteCache(mgr ctrl.Manager) error {
 		func(o client.Object) []string {
 			httpRoute := o.(*gwapiv1.HTTPRoute)
 			refs := httpRoute.Spec.ParentRefs
-			if refs != nil && len(refs) == 0 {
+			if len(refs) == 0 {
 				return nil
 			}
+
+			var keys []string
 
 			for i := range refs {
 				groupOK := refs[i].Group == nil || *refs[i].Group == gwapiv1.Group(gwapiv1.GroupVersion.Group)
 				kindOK := refs[i].Kind == nil || *refs[i].Kind == gwapiv1.Kind("Gateway")
 
-				ns := httpRoute.Namespace
-				if refs[i].Namespace != nil && *refs[i].Namespace != "" {
-					ns = string(*refs[i].Namespace)
+				if !groupOK || !kindOK {
+					continue
 				}
 
-				// TODO
+				name := string(refs[i].Name)
+				if name == "" {
+					continue
+				}
+
+				namespace := httpRoute.GetNamespace()
+				if refs[i].Namespace != nil && *refs[i].Namespace != "" {
+					namespace = string(*refs[i].Namespace)
+				}
+
+				keys = append(keys, fmt.Sprintf("%s%s", namespace, name))
 
 			}
 
-			return []string{""}
+			return keys
 		},
 	); err != nil {
 		return err

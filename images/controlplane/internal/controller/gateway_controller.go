@@ -22,7 +22,10 @@ import (
 	gwapiv1beta1 "sigs.k8s.io/gateway-api/apis/v1beta1"
 )
 
-const gatewayClassIndexKey = "spec.gatewayClassName"
+const (
+	gatewayClassIndexKey    = "spec.gatewayClassName"
+	httpRouteParentRefIndex = "spec.ParentRefs"
+)
 
 type ArgonConfigReconcilerGatewayAPI struct {
 	client.Client
@@ -49,19 +52,7 @@ func (r *ArgonConfigReconcilerGatewayAPI) Reconcile(ctx context.Context, req ctr
 
 func SetupGatewayController(mgr ctrl.Manager, gatewayClassName string) error {
 
-	if err := mgr.GetFieldIndexer().IndexField(
-		context.Background(),
-		&gwapiv1.Gateway{},
-		gatewayClassIndexKey,
-		func(obj client.Object) []string {
-			gw := obj.(*gwapiv1.Gateway)
-			if gw.Spec.GatewayClassName == "" {
-				return []string{}
-			}
-			v := string(gw.Spec.GatewayClassName)
-			return []string{v}
-		},
-	); err != nil {
+	if err := setupGatewayAPICache(mgr); err != nil {
 		return err
 	}
 
@@ -219,9 +210,9 @@ func (r *ArgonConfigReconcilerGatewayAPI) parseListener(
 		Protocol: listener.Protocol,
 		Hostname: listener.Hostname,
 	}
-	if listener.AllowedRoutes != nil {
-		snapshot.AllowedRoutes = *listener.AllowedRoutes
-	}
+	// if listener.AllowedRoutes != nil { // TODO check allowed routes
+	// 	snapshot.AllowedRoutes = *listener.AllowedRoutes
+	// }
 
 	var tlsBundles []TLSSecret
 
@@ -299,4 +290,57 @@ func (r *ArgonConfigReconcilerGatewayAPI) buildTLSSecretFromRef(
 		NotAfterUnix: certs[0].NotAfter,
 		Version:      hex.EncodeToString(sum[:]),
 	}, nil
+}
+
+func setupGatewayAPICache(mgr ctrl.Manager) error {
+	if err := mgr.GetFieldIndexer().IndexField(
+		context.Background(),
+		&gwapiv1.Gateway{},
+		gatewayClassIndexKey,
+		func(obj client.Object) []string {
+			gw := obj.(*gwapiv1.Gateway)
+			if gw.Spec.GatewayClassName == "" {
+				return []string{}
+			}
+			v := string(gw.Spec.GatewayClassName)
+			return []string{v}
+		},
+	); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func setupHTTPRouteCache(mgr ctrl.Manager) error {
+	if err := mgr.GetFieldIndexer().IndexField(
+		context.Background(),
+		&gwapiv1.HTTPRoute{},
+		httpRouteParentRefIndex,
+		func(o client.Object) []string {
+			httpRoute := o.(*gwapiv1.HTTPRoute)
+			refs := httpRoute.Spec.ParentRefs
+			if refs != nil && len(refs) == 0 {
+				return nil
+			}
+
+			for i := range refs {
+				groupOK := refs[i].Group == nil || *refs[i].Group == gwapiv1.Group(gwapiv1.GroupVersion.Group)
+				kindOK := refs[i].Kind == nil || *refs[i].Kind == gwapiv1.Kind("Gateway")
+
+				ns := httpRoute.Namespace
+				if refs[i].Namespace != nil && *refs[i].Namespace != "" {
+					ns = string(*refs[i].Namespace)
+				}
+
+				// TODO
+
+			}
+
+			return []string{""}
+		},
+	); err != nil {
+		return err
+	}
+	return nil
 }

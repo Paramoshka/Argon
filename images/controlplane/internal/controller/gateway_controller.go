@@ -56,6 +56,10 @@ func SetupGatewayController(mgr ctrl.Manager, gatewayClassName string) error {
 		return err
 	}
 
+	if err := setupHTTPRouteCache(mgr); err != nil {
+		return err
+	}
+
 	reconciler := &ArgonConfigReconcilerGatewayAPI{
 		Client:       mgr.GetClient(),
 		GatewayClass: gatewayClassName,
@@ -142,6 +146,12 @@ func (r *ArgonConfigReconcilerGatewayAPI) gatewayListToSnap(ctx context.Context,
 			if len(tlsBundles) > 0 {
 				gwSnap.TLS = append(gwSnap.TLS, tlsBundles...)
 			}
+		}
+
+		// get HTTPRoutes for Gateway
+		listHTTPRoutes, err := r.getHTTPRoutesForGateway(ctx, client.ObjectKeyFromObject(&gw).String())
+		if err != nil {
+			return nil, err
 		}
 
 		snapshots = append(snapshots, gwSnap)
@@ -290,6 +300,17 @@ func (r *ArgonConfigReconcilerGatewayAPI) buildTLSSecretFromRef(
 		NotAfterUnix: certs[0].NotAfter,
 		Version:      hex.EncodeToString(sum[:]),
 	}, nil
+}
+
+func (r *ArgonConfigReconcilerGatewayAPI) getHTTPRoutesForGateway(ctx context.Context, gatewayName string) ([]gwapiv1.HTTPRoute, error) {
+	var listHTTPRoutes *gwapiv1.HTTPRouteList
+	if err := r.Client.List(ctx, listHTTPRoutes, client.MatchingFields{
+		httpRouteParentRefIndex: gatewayName,
+	}); err != nil {
+		return nil, err
+	}
+
+	return listHTTPRoutes.Items, nil
 }
 
 func setupGatewayAPICache(mgr ctrl.Manager) error {

@@ -376,3 +376,13 @@ func setupHTTPRouteCache(mgr ctrl.Manager) error {
 	}
 	return nil
 }
+
+// function retrieving HTTPRoute list and return array Routes
+func buildRoutes(httpRoutes *gwapiv1.HTTPRouteList) []Route {
+	routes := make([]Route, 0, len(httpRoutes.Items))
+
+	for _, hr := range httpRoutes.Items {
+		// TODO
+	}
+	return routes
+}
